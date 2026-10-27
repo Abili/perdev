@@ -50,7 +50,7 @@ const { Agent } = require('../out/agent');
 (async () => {
   const task = process.argv[3] || 'List the files in this project and summarize what it does.';
   const cfg = {
-    baseUrl: process.argv[5] || 'http://127.0.0.1:8080/v1',
+    baseUrl: process.argv[5] || 'http://127.0.0.1:8780/v1',
     apiKey: 'local',
     model: process.argv[4] || 'perdev-coder',
   };

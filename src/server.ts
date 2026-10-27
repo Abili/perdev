@@ -49,16 +49,25 @@ export class LocalServers implements vscode.Disposable {
 
     for (const s of specs) {
       if (!s.url || !s.model) continue;
-      if (await healthy(s.url)) {
+      const status = await probe(s.url, s.model);
+      if (status === 'ours') {
         this.output.appendLine(`${s.label}: already running at ${s.url}`);
         continue;
       }
+      if (status === 'other') {
+        const msg = `PerDev: ${s.url} is already used by another program, so the ${s.label} server can't start there. Change the port in PerDev's settings.`;
+        this.output.appendLine(msg);
+        vscode.window.showWarningMessage(msg);
+        continue;
+      }
       if (!fs.existsSync(s.model)) {
-        this.output.appendLine(`${s.label}: model file missing (${s.model}); not starting.`);
+        // Downloads write to <name>.part and are renamed when complete.
+        const note = fs.existsSync(s.model + '.part') ? ' (still downloading)' : '';
+        this.output.appendLine(`${s.label}: model file missing${note}: ${s.model}; not starting.`);
         continue;
       }
       const u = new URL(s.url);
-      const args = ['-m', s.model, '--host', u.hostname, '--port', u.port || '8080', ...s.args];
+      const args = ['-m', s.model, '--host', u.hostname, '--port', u.port || '8780', ...s.args];
       this.output.appendLine(`${s.label}: starting ${exe} ${args.join(' ')}`);
       const p = spawn(exe, args, { windowsHide: true });
       p.stdout?.on('data', (d) => this.output.append(`[${s.label}] ${d}`));
@@ -79,11 +88,21 @@ export class LocalServers implements vscode.Disposable {
   }
 }
 
-async function healthy(base: string): Promise<boolean> {
+// 'ours': a llama.cpp server already serving this model file; 'free': nothing
+// listening; 'other': something else owns the port.
+async function probe(base: string, modelPath: string): Promise<'ours' | 'free' | 'other'> {
+  let res: Response;
   try {
-    const res = await fetch(`${base.replace(/\/$/, '')}/health`, { signal: AbortSignal.timeout(1500) });
-    return res.ok;
+    res = await fetch(`${base.replace(/\/$/, '')}/props`, { signal: AbortSignal.timeout(1500) });
+  } catch (e: any) {
+    const code = e?.cause?.code;
+    return code === 'ECONNREFUSED' || code === 'ECONNRESET' ? 'free' : e?.name === 'TimeoutError' ? 'other' : 'free';
+  }
+  try {
+    const props: any = await res.json();
+    const served = String(props.model_path ?? '').toLowerCase().replace(/\//g, '\\');
+    return served && served === modelPath.toLowerCase().replace(/\//g, '\\') ? 'ours' : 'other';
   } catch {
-    return false;
+    return 'other';
   }
 }

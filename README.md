@@ -43,10 +43,10 @@ npm test         # unit tests, no VS Code needed
 
 | Setting | Default | |
 |---|---|---|
-| `perdev.baseUrl` | `http://127.0.0.1:8080/v1` | Any OpenAI-compatible endpoint |
+| `perdev.baseUrl` | `http://127.0.0.1:8780/v1` | Any OpenAI-compatible endpoint |
 | `perdev.server.chatModelPath` | 7B GGUF on E: | Swap in your own fine-tuned GGUF here |
 | `perdev.server.device` | `Vulkan1` | The RTX 3070 (`llama-server --list-devices`) |
-| `perdev.autocomplete.url` | `http://127.0.0.1:8081` | llama.cpp autocomplete server |
+| `perdev.autocomplete.url` | `http://127.0.0.1:8781` | llama.cpp autocomplete server |
 | `perdev.agent.approveCommands` | `true` | Ask before running shell commands |
 | `perdev.agent.approveEdits` | `false` | Ask before writing files |
 | `perdev.dataDir` | extension storage | Where training logs go. The playground sets it to `E:\codingprojects\PerDev\data` |

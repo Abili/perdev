@@ -40,6 +40,12 @@ export function activate(context: vscode.ExtensionContext) {
       await vscode.env.openExternal(vscode.Uri.file(logger.dir));
     }),
   );
+
+  // First launch: open the agent panel so people see PerDev right away.
+  if (!context.globalState.get<boolean>('perdev.panelShown')) {
+    vscode.commands.executeCommand('workbench.view.extension.perdev');
+    context.globalState.update('perdev.panelShown', true);
+  }
 }
 
 export function deactivate() {}

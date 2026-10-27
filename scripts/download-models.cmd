@@ -1,6 +1,8 @@
 @echo off
 rem Downloads PerDev's free models (GGUF, Apache-2.0) to E:\Tools\models.
-rem Resumes after dropped connections; safe to re-run.
+rem Each file downloads to <name>.part and is renamed only when complete, so
+rem PerDev never tries to load a half-downloaded model. Resumes after dropped
+rem connections; safe to re-run.
 setlocal
 set DIR=E:\Tools\models
 if not exist "%DIR%" mkdir "%DIR%"
@@ -11,12 +13,13 @@ echo All models downloaded.
 exit /b 0
 
 :get
+if exist "%DIR%\%1" (echo %1 already downloaded & goto :eof)
 for /l %%i in (1,1,200) do (
   echo [%time%] %1 attempt %%i
-  curl.exe -L --fail -C - --retry 5 --retry-delay 5 --speed-limit 1000 --speed-time 60 -o "%DIR%\%1" %2
-  if not errorlevel 1 goto :eof
+  curl.exe -L --fail -C - --retry 5 --retry-delay 5 --speed-limit 1000 --speed-time 60 -o "%DIR%\%1.part" %2
+  if not errorlevel 1 (move /y "%DIR%\%1.part" "%DIR%\%1" >nul & goto :eof)
   rem 33 = nothing left to resume, file already complete
-  if errorlevel 33 if not errorlevel 34 goto :eof
+  if errorlevel 33 if not errorlevel 34 (move /y "%DIR%\%1.part" "%DIR%\%1" >nul & goto :eof)
   timeout /t 10 /nobreak >nul
 )
 exit /b 1

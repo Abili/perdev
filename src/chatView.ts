@@ -49,7 +49,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private settings() {
     const c = vscode.workspace.getConfiguration('perdev');
     const cfg: LlmConfig = {
-      baseUrl: c.get<string>('baseUrl', 'http://127.0.0.1:8080/v1'),
+      baseUrl: c.get<string>('baseUrl', 'http://127.0.0.1:8780/v1'),
       apiKey: c.get<string>('apiKey', 'local'),
       model: c.get<string>('chatModel', 'perdev-coder'),
     };

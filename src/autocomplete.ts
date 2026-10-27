@@ -60,7 +60,7 @@ export class AutocompleteProvider implements vscode.InlineCompletionItemProvider
 
     const model = c.get<string>('autocomplete.model', 'qwen2.5-coder');
     const backend = c.get<string>('autocomplete.backend', 'llamacpp');
-    const url = c.get<string>('autocomplete.url', 'http://127.0.0.1:8081').replace(/\/$/, '');
+    const url = c.get<string>('autocomplete.url', 'http://127.0.0.1:8781').replace(/\/$/, '');
     const fmt = fimFormatFor(model);
     const prompt = fmt.build(prefix, suffix);
     const stop = [...fmt.stop, '\n\n\n'];
