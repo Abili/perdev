@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>PerDev</title>
+  <rect width="256" height="256" rx="56" fill="#0B0D14"/>
+  <g fill="none" stroke="#2D5BFF" stroke-linecap="round" stroke-linejoin="round">
+    <!-- P / D: stem and outer bowl -->
+    <path d="M84 48 V212" stroke-width="22"/>
+    <path d="M84 48 H146 C190 48 206 76 206 104 C206 134 184 150 150 150 H92" stroke-width="20"/>
+    <!-- r: shoulder curling off the stem inside the bowl -->
+    <path d="M90 140 C98 104 118 88 140 88 C150 88 157 92 162 100" stroke-width="16"/>
+  </g>
+</svg>
