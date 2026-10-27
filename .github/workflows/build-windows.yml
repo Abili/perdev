@@ -23,6 +23,8 @@ env:
   DISABLE_UPDATE: 'yes'
   SHOULD_BUILD_REH: 'no'
   SHOULD_BUILD_REH_WEB: 'no'
+  # The repo's .npmrc puts npm's cache on E: for local work; runners have no E:.
+  npm_config_cache: C:\npm-cache
 
 permissions:
   contents: read
