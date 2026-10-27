@@ -1,10 +1,10 @@
 // The agent loop: ask the model, run any tools it calls, feed results back,
 // repeat until it answers without tools.
 
-import * as os from 'os';
 import { ChatMessage, LlmConfig, streamChat } from './llm';
 import { TOOL_SPECS, runTool, ToolContext } from './tools';
-import { trimContext } from './context';
+import { conversationSize, trimContext } from './context';
+import { carryOverSection, HANDOFF_PROMPT, systemPrompt } from './prompt';
 
 export type AgentEvent =
   | { type: 'text'; delta: string }
@@ -13,24 +13,6 @@ export type AgentEvent =
   | { type: 'tool_end'; id: string; result: string }
   | { type: 'error'; message: string }
   | { type: 'done'; outcome: 'done' | 'stopped' | 'error' | 'max_steps' };
-
-export function systemPrompt(root: string): string {
-  return `You are PerDev, an expert software engineer working inside the user's code editor.
-
-Workspace root: ${root}
-OS: ${os.platform()} (${os.release()})
-Date: ${new Date().toISOString().slice(0, 10)}
-
-You can call tools to read, search, create and edit files and to run shell commands.
-How to work:
-- Explore before changing things: use list_files, search and read_file to understand the code.
-- Make focused changes with edit_file. Always read a file before editing it, and copy old_str exactly.
-- Use write_file only for new files or full rewrites.
-- After changing code, verify it: run the tests, the build or the program with run_command when possible, and fix what fails.
-- Paths are relative to the workspace root.
-- When the task is complete, reply with a short summary of what you changed. Do not call tools in that final reply.
-- If the request is just a question, answer it directly and concisely.`;
-}
 
 export class Agent {
   messages: ChatMessage[] = [];
@@ -44,8 +26,30 @@ export class Agent {
     return !!this.abort;
   }
 
-  reset() {
-    this.messages = [{ role: 'system', content: systemPrompt(this.root) }];
+  // carry: handoff from a parent chat, built into the system prompt so it is never trimmed.
+  reset(carry?: { parentTitle: string; summary: string }) {
+    const extra = carry ? carryOverSection(carry.parentTitle, carry.summary) : '';
+    this.messages = [{ role: 'system', content: systemPrompt(this.root) + extra }];
+  }
+
+  // How full the conversation is, relative to the trimming budget (0..1+).
+  usage(maxContextChars: number): number {
+    return conversationSize(this.messages) / maxContextChars;
+  }
+
+  // Ask the model for a handoff note that a fresh chat can continue from.
+  async summarize(cfg: LlmConfig, maxContextChars: number, onText: (d: string) => void): Promise<string> {
+    this.abort = new AbortController();
+    try {
+      const msgs: ChatMessage[] = JSON.parse(JSON.stringify(this.messages));
+      // Leave room for the note itself.
+      trimContext(msgs, Math.floor(maxContextChars * 0.85));
+      msgs.push({ role: 'user', content: HANDOFF_PROMPT });
+      const result = await streamChat(cfg, msgs, [], onText, this.abort.signal);
+      return result.content.trim();
+    } finally {
+      this.abort = undefined;
+    }
   }
 
   stop() {

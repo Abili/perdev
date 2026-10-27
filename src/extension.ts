@@ -4,6 +4,7 @@ import { ChatViewProvider } from './chatView';
 import { AutocompleteProvider } from './autocomplete';
 import { TrainingLogger } from './logger';
 import { LocalServers } from './server';
+import { SessionStore } from './sessions';
 
 export function activate(context: vscode.ExtensionContext) {
   const servers = new LocalServers();
@@ -11,7 +12,7 @@ export function activate(context: vscode.ExtensionContext) {
   servers.ensureRunning();
 
   const logger = new TrainingLogger(context);
-  const chat = new ChatViewProvider(logger);
+  const chat = new ChatViewProvider(logger, new SessionStore(() => logger.dir));
   const autocomplete = new AutocompleteProvider(logger);
 
   context.subscriptions.push(
@@ -21,6 +22,8 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.languages.registerInlineCompletionItemProvider({ pattern: '**' }, autocomplete),
     vscode.commands.registerCommand('perdev.newChat', () => chat.newChat()),
     vscode.commands.registerCommand('perdev.stop', () => chat.stop()),
+    vscode.commands.registerCommand('perdev.branchChat', () => chat.branch()),
+    vscode.commands.registerCommand('perdev.history', () => chat.showHistory()),
     vscode.commands.registerCommand('perdev.completionAccepted', (id: string) => autocomplete.markAccepted(id)),
     vscode.commands.registerCommand('perdev.toggleAutocomplete', async () => {
       const c = vscode.workspace.getConfiguration('perdev');

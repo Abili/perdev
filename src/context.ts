@@ -2,8 +2,12 @@ import { ChatMessage } from './llm';
 
 // Keep the conversation under budget by blanking the oldest tool outputs first,
 // then dropping the oldest turns. The system prompt and latest user message stay.
+export function conversationSize(messages: ChatMessage[]): number {
+  return messages.reduce((n, m) => n + (m.content?.length ?? 0) + JSON.stringify(m.tool_calls ?? '').length, 0);
+}
+
 export function trimContext(messages: ChatMessage[], maxChars: number) {
-  const size = () => messages.reduce((n, m) => n + (m.content?.length ?? 0) + JSON.stringify(m.tool_calls ?? '').length, 0);
+  const size = () => conversationSize(messages);
   if (size() <= maxChars) return;
 
   const lastUser = messages.map((m) => m.role).lastIndexOf('user');

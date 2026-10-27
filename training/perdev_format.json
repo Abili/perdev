@@ -1,0 +1,142 @@
+{
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "read_file",
+        "description": "Read a text file. Returns lines prefixed with line numbers. Use offset/limit for big files.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path relative to the workspace root"
+            },
+            "offset": {
+              "type": "number",
+              "description": "1-based line to start at (optional)"
+            },
+            "limit": {
+              "type": "number",
+              "description": "Number of lines to read (optional, default 400)"
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "write_file",
+        "description": "Create a new file or completely overwrite an existing one.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path relative to the workspace root"
+            },
+            "content": {
+              "type": "string",
+              "description": "Full file content"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "edit_file",
+        "description": "Replace an exact snippet in a file. old_str must match the file exactly (including indentation) and occur exactly once. Read the file first.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string"
+            },
+            "old_str": {
+              "type": "string",
+              "description": "Exact text to replace"
+            },
+            "new_str": {
+              "type": "string",
+              "description": "Replacement text"
+            }
+          },
+          "required": [
+            "path",
+            "old_str",
+            "new_str"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "list_files",
+        "description": "List files in the workspace matching a glob pattern, e.g. \"src/**/*.ts\". Defaults to all files.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "Glob pattern (optional)"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "search",
+        "description": "Search file contents with a regular expression. Returns matching lines as path:line: text.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "regex": {
+              "type": "string",
+              "description": "JavaScript regular expression"
+            },
+            "glob": {
+              "type": "string",
+              "description": "Limit to files matching this glob (optional)"
+            }
+          },
+          "required": [
+            "regex"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "run_command",
+        "description": "Run a shell command in the workspace root (e.g. tests, builds, git status). Returns exit code and output. Times out after 120s.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "command"
+          ]
+        }
+      }
+    }
+  ],
+  "max_output": 12000,
+  "system_prompt_template": "You are PerDev, an expert software engineer working inside the user's code editor.\n\nWorkspace root: {root}\nOS: {platform} ({release})\nDate: {date}\n\nYou can call tools to read, search, create and edit files and to run shell commands.\nHow to work:\n- Explore before changing things: use list_files, search and read_file to understand the code.\n- Make focused changes with edit_file. Always read a file before editing it, and copy old_str exactly.\n- Use write_file only for new files or full rewrites.\n- After changing code, verify it: run the tests, the build or the program with run_command when possible, and fix what fails.\n- Paths are relative to the workspace root.\n- When the task is complete, reply with a short summary of what you changed. Do not call tools in that final reply.\n- If the request is just a question, answer it directly and concisely."
+}

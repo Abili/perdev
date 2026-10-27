@@ -33,6 +33,8 @@
     "commands": [
       { "command": "perdev.newChat", "title": "PerDev: New Chat", "icon": "$(add)" },
       { "command": "perdev.stop", "title": "PerDev: Stop Agent", "icon": "$(debug-stop)" },
+      { "command": "perdev.branchChat", "title": "PerDev: Continue in New Chat (carry a summary)", "icon": "$(git-branch)" },
+      { "command": "perdev.history", "title": "PerDev: Open Previous Chat", "icon": "$(history)" },
       { "command": "perdev.openDataFolder", "title": "PerDev: Open Training Data Folder" },
       { "command": "perdev.startServers", "title": "PerDev: Start Local Model Servers" },
       { "command": "perdev.toggleAutocomplete", "title": "PerDev: Toggle Autocomplete" }
@@ -40,6 +42,8 @@
     "menus": {
       "view/title": [
         { "command": "perdev.newChat", "when": "view == perdev.chat", "group": "navigation" },
+        { "command": "perdev.branchChat", "when": "view == perdev.chat", "group": "navigation" },
+        { "command": "perdev.history", "when": "view == perdev.chat", "group": "navigation" },
         { "command": "perdev.stop", "when": "view == perdev.chat", "group": "navigation" }
       ]
     },
@@ -97,6 +101,11 @@
           "default": "E:\\Tools\\models\\Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf",
           "description": "GGUF model file for chat and the agent. Point this at your own fine-tuned model later."
         },
+        "perdev.server.chatLoraPath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional LoRA adapter (GGUF) applied on top of the chat model, e.g. the perdev-lora-f16.gguf produced by training/perdev_finetune.ipynb."
+        },
         "perdev.server.autocompleteModelPath": {
           "type": "string",
           "default": "E:\\Tools\\models\\Qwen2.5-Coder-1.5B.Q4_K_M.gguf",
@@ -126,6 +135,13 @@
           "type": "number",
           "default": 40000,
           "description": "Approximate conversation size (characters) before old tool output is trimmed. Keep it under the model's context window (~3.5 chars per token)."
+        },
+        "perdev.agent.suggestNewChatAt": {
+          "type": "number",
+          "default": 0.75,
+          "minimum": 0.2,
+          "maximum": 1,
+          "description": "When the chat uses this share of the context budget, offer to continue in a new chat that carries a handoff summary and links back to this one."
         },
         "perdev.agent.approveCommands": {
           "type": "boolean",

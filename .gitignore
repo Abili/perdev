@@ -3,3 +3,4 @@ out/
 *.vsix
 data/
 .vscode-test/
+training/__pycache__/

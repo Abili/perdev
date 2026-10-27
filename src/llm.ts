@@ -41,7 +41,7 @@ export async function streamChat(
   const res = await fetch(`${cfg.baseUrl.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
-    body: JSON.stringify({ model: cfg.model, messages, tools, stream: true, temperature: 0.2 }),
+    body: JSON.stringify({ model: cfg.model, messages, ...(tools.length ? { tools } : {}), stream: true, temperature: 0.2 }),
     signal,
   });
   if (!res.ok || !res.body) {

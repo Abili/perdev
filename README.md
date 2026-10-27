@@ -4,6 +4,7 @@ A local-first AI coding agent for VS Code that runs on **your own model**, for f
 
 - **Agent chat** (sidebar): reads, searches and edits files and runs commands to finish real tasks.
 - **Tab autocomplete**: fill-in-the-middle ghost text from a small, fast local model.
+- **Branching chats**: a context meter shows how full the chat is. When it gets long, PerDev offers to *continue in a new chat*: the model writes a handoff note (goal, what's done, key facts, next steps), and the new chat starts with it and links back to the parent. Chats are saved, and you can reopen any of them (history button).
 - **Training-data logging**: every agent session and every accepted or rejected completion is saved as JSONL, ready for fine-tuning your own model later. Nothing leaves your machine.
 - **Any OpenAI-compatible server**: llama.cpp by default (started automatically); Ollama, vLLM, LM Studio or a hosted API work by changing settings.
 
@@ -50,10 +51,23 @@ npm test         # unit tests, no VS Code needed
 | `perdev.agent.approveEdits` | `false` | Ask before writing files |
 | `perdev.dataDir` | extension storage | Where training logs go. The playground sets it to `E:\codingprojects\PerDev\data` |
 
+## Training your model
+
+[training/perdev_finetune.ipynb](training/perdev_finetune.ipynb) fine-tunes Qwen2.5-Coder-7B into PerDev's agent on a **free Kaggle GPU**. All the big downloads happen in Kaggle's datacenter; you only download the finished adapter (about 80 MB).
+
+- **Data:** [SWE-smith trajectories](https://huggingface.co/datasets/SWE-bench/SWE-smith-trajectories) (MIT). These are thousands of real bug-fix sessions, each verified by the project's tests. [training/build_dataset.py](training/build_dataset.py) rewrites them into PerDev's exact tools, system prompt and output format, so the model learns *this* agent's interface. Your own PerDev chats (`chat.jsonl` from `scripts/export-training-data.js`) can be added and are weighted 3×.
+- **Method:** LoRA on the 4-bit model with Unsloth. Only the assistant's turns are learned; tool output is masked.
+- **Proof it helped:** the notebook scores the model before and after on held-out sessions (valid tool calls, same tool as the successful reference). Keep the adapter only if the score improves.
+- **Use it:** put `perdev-lora-f16.gguf` in `E:\Tools\models` and set `perdev.server.chatLoraPath`.
+
+Steps: kaggle.com → *Create → New Notebook → File → Import Notebook* → pick `training/perdev_finetune.ipynb` → *Settings*: GPU T4 x2 and Internet on → *Save Version → Save & Run All*.
+
+If you change the tools or the system prompt, run `npm run compile && node scripts/export-format.js && python training/make_notebook.py` to regenerate the notebook, so training always matches the extension.
+
 ## Roadmap
 
 1. **Now:** use PerDev daily so it collects sessions and completion feedback in `data/`.
-2. **Fine-tune for free:** run `node scripts/export-training-data.js data` to build `chat.jsonl` and `fim.jsonl`. Train a LoRA with Unsloth on Kaggle or Colab free GPUs, export to GGUF, and point `perdev.server.chatModelPath` at it. Then PerDev really runs on your model.
+2. **Fine-tune for free:** see [Training your model](#training-your-model).
 3. **Evals:** a fixed set of tasks (like the playground) to measure each new model version.
 4. **Later:** fork VSCodium when the extension API becomes the limit, then a hosted tier for people without GPUs.
 

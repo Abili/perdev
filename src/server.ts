@@ -26,13 +26,18 @@ export class LocalServers implements vscode.Disposable {
     }
     const device = c.get<string>('server.device', '');
     const common = ['-ngl', '99', ...(device ? ['--device', device] : [])];
+    const lora = c.get<string>('server.chatLoraPath', '');
+    if (lora && !fs.existsSync(lora)) {
+      this.output.appendLine(`chat: LoRA adapter not found at "${lora}"; starting without it.`);
+    }
+    const loraArgs = lora && fs.existsSync(lora) ? ['--lora', lora] : [];
 
     const specs: ServerSpec[] = [
       {
         label: 'chat',
         url: c.get<string>('baseUrl', '').replace(/\/v1\/?$/, ''),
         model: c.get<string>('server.chatModelPath', ''),
-        args: ['--jinja', '-c', String(c.get<number>('server.chatContext', 16384)), '--alias', c.get<string>('chatModel', 'perdev-coder'), ...common],
+        args: ['--jinja', '-c', String(c.get<number>('server.chatContext', 16384)), '--alias', c.get<string>('chatModel', 'perdev-coder'), ...loraArgs, ...common],
       },
       {
         label: 'autocomplete',
