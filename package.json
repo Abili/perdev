@@ -1,0 +1,127 @@
+{
+  "name": "perdev",
+  "displayName": "PerDev",
+  "description": "A local-first AI coding agent that runs on your own model.",
+  "version": "0.1.0",
+  "publisher": "perdev",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Programming Languages", "Machine Learning", "Other"],
+  "main": "./out/extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "perdev",
+          "title": "PerDev",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "perdev": [
+        {
+          "type": "webview",
+          "id": "perdev.chat",
+          "name": "Agent"
+        }
+      ]
+    },
+    "commands": [
+      { "command": "perdev.newChat", "title": "PerDev: New Chat", "icon": "$(add)" },
+      { "command": "perdev.stop", "title": "PerDev: Stop Agent", "icon": "$(debug-stop)" },
+      { "command": "perdev.openDataFolder", "title": "PerDev: Open Training Data Folder" },
+      { "command": "perdev.toggleAutocomplete", "title": "PerDev: Toggle Autocomplete" }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "perdev.newChat", "when": "view == perdev.chat", "group": "navigation" },
+        { "command": "perdev.stop", "when": "view == perdev.chat", "group": "navigation" }
+      ]
+    },
+    "configuration": {
+      "title": "PerDev",
+      "properties": {
+        "perdev.baseUrl": {
+          "type": "string",
+          "default": "http://localhost:11434/v1",
+          "description": "OpenAI-compatible API base URL used for chat and the agent. Point it at any server that speaks /chat/completions."
+        },
+        "perdev.apiKey": {
+          "type": "string",
+          "default": "ollama",
+          "description": "API key sent as a Bearer token. Ollama ignores it."
+        },
+        "perdev.chatModel": {
+          "type": "string",
+          "default": "perdev-coder",
+          "description": "Model used for chat and the agent."
+        },
+        "perdev.autocomplete.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable inline (tab) autocomplete."
+        },
+        "perdev.autocomplete.ollamaUrl": {
+          "type": "string",
+          "default": "http://localhost:11434",
+          "description": "Ollama server used for fill-in-the-middle autocomplete (native /api/generate)."
+        },
+        "perdev.autocomplete.model": {
+          "type": "string",
+          "default": "qwen2.5-coder:1.5b-base",
+          "description": "Base (non-instruct) model used for fill-in-the-middle autocomplete."
+        },
+        "perdev.autocomplete.debounceMs": {
+          "type": "number",
+          "default": 250,
+          "description": "Delay after typing before asking for a completion."
+        },
+        "perdev.agent.maxSteps": {
+          "type": "number",
+          "default": 25,
+          "description": "Maximum tool-call rounds per request before the agent stops."
+        },
+        "perdev.agent.maxContextChars": {
+          "type": "number",
+          "default": 40000,
+          "description": "Approximate conversation size (characters) before old tool output is trimmed. Keep it under the model's context window (~3.5 chars per token)."
+        },
+        "perdev.agent.approveCommands": {
+          "type": "boolean",
+          "default": true,
+          "description": "Ask before running shell commands."
+        },
+        "perdev.agent.approveEdits": {
+          "type": "boolean",
+          "default": false,
+          "description": "Ask before writing or editing files."
+        },
+        "perdev.dataDir": {
+          "type": "string",
+          "default": "",
+          "description": "Folder where sessions and autocomplete feedback are logged as JSONL training data. Empty uses the extension's global storage folder."
+        },
+        "perdev.logTrainingData": {
+          "type": "boolean",
+          "default": true,
+          "description": "Log agent sessions and accepted completions for fine-tuning later. Data never leaves your machine."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && node --test out/test/",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}

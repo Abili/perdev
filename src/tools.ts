@@ -1,0 +1,255 @@
+// The agent's tools: read, write, edit, list, search files and run commands.
+// Everything is scoped to the workspace root.
+
+import * as vscode from 'vscode';
+import * as path from 'path';
+import * as fs from 'fs/promises';
+import { exec } from 'child_process';
+import { ToolSpec } from './llm';
+
+const MAX_OUTPUT = 12000;
+
+export interface ToolContext {
+  root: string;
+  approveCommands: boolean;
+  approveEdits: boolean;
+  signal: AbortSignal;
+}
+
+export const TOOL_SPECS: ToolSpec[] = [
+  {
+    type: 'function',
+    function: {
+      name: 'read_file',
+      description: 'Read a text file. Returns lines prefixed with line numbers. Use offset/limit for big files.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Path relative to the workspace root' },
+          offset: { type: 'number', description: '1-based line to start at (optional)' },
+          limit: { type: 'number', description: 'Number of lines to read (optional, default 400)' },
+        },
+        required: ['path'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'write_file',
+      description: 'Create a new file or completely overwrite an existing one.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Path relative to the workspace root' },
+          content: { type: 'string', description: 'Full file content' },
+        },
+        required: ['path', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'edit_file',
+      description:
+        'Replace an exact snippet in a file. old_str must match the file exactly (including indentation) and occur exactly once. Read the file first.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string' },
+          old_str: { type: 'string', description: 'Exact text to replace' },
+          new_str: { type: 'string', description: 'Replacement text' },
+        },
+        required: ['path', 'old_str', 'new_str'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_files',
+      description: 'List files in the workspace matching a glob pattern, e.g. "src/**/*.ts". Defaults to all files.',
+      parameters: {
+        type: 'object',
+        properties: { pattern: { type: 'string', description: 'Glob pattern (optional)' } },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search',
+      description: 'Search file contents with a regular expression. Returns matching lines as path:line: text.',
+      parameters: {
+        type: 'object',
+        properties: {
+          regex: { type: 'string', description: 'JavaScript regular expression' },
+          glob: { type: 'string', description: 'Limit to files matching this glob (optional)' },
+        },
+        required: ['regex'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'run_command',
+      description:
+        'Run a shell command in the workspace root (e.g. tests, builds, git status). Returns exit code and output. Times out after 120s.',
+      parameters: {
+        type: 'object',
+        properties: { command: { type: 'string' } },
+        required: ['command'],
+      },
+    },
+  },
+];
+
+const EXCLUDE = '**/{node_modules,.git,out,dist,build,.venv,__pycache__}/**';
+
+function resolveInRoot(root: string, p: string): string {
+  const full = path.resolve(root, p);
+  const rel = path.relative(root, full);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) {
+    throw new Error(`Path "${p}" is outside the workspace.`);
+  }
+  return full;
+}
+
+function truncate(s: string): string {
+  if (s.length <= MAX_OUTPUT) return s;
+  const half = MAX_OUTPUT / 2;
+  return `${s.slice(0, half)}\n\n... [${s.length - MAX_OUTPUT} characters truncated] ...\n\n${s.slice(-half)}`;
+}
+
+async function confirm(message: string, detail: string): Promise<boolean> {
+  const choice = await vscode.window.showWarningMessage(message, { modal: true, detail }, 'Allow');
+  return choice === 'Allow';
+}
+
+export async function runTool(name: string, rawArgs: string, ctx: ToolContext): Promise<string> {
+  let args: any;
+  try {
+    args = rawArgs ? JSON.parse(rawArgs) : {};
+  } catch {
+    return `Error: arguments were not valid JSON: ${rawArgs}`;
+  }
+  try {
+    switch (name) {
+      case 'read_file':
+        return await readFile(ctx, args);
+      case 'write_file':
+        return await writeFile(ctx, args);
+      case 'edit_file':
+        return await editFile(ctx, args);
+      case 'list_files':
+        return await listFiles(args);
+      case 'search':
+        return await search(ctx, args);
+      case 'run_command':
+        return await runCommand(ctx, args);
+      default:
+        return `Error: unknown tool "${name}". Available: ${TOOL_SPECS.map((t) => t.function.name).join(', ')}`;
+    }
+  } catch (e: any) {
+    return `Error: ${e?.message ?? String(e)}`;
+  }
+}
+
+async function readFile(ctx: ToolContext, a: { path: string; offset?: number; limit?: number }) {
+  const full = resolveInRoot(ctx.root, a.path);
+  const text = await fs.readFile(full, 'utf8');
+  const lines = text.split(/\r?\n/);
+  const start = Math.max(1, a.offset ?? 1);
+  const limit = a.limit ?? 400;
+  const slice = lines.slice(start - 1, start - 1 + limit);
+  const body = slice.map((l, i) => `${String(start + i).padStart(5)}  ${l}`).join('\n');
+  const more = start - 1 + limit < lines.length ? `\n[${lines.length} lines total; use offset to read more]` : '';
+  return truncate(body + more);
+}
+
+async function writeFile(ctx: ToolContext, a: { path: string; content: string }) {
+  const full = resolveInRoot(ctx.root, a.path);
+  if (ctx.approveEdits && !(await confirm(`PerDev wants to write ${a.path}`, a.content.slice(0, 1500)))) {
+    return 'Error: the user declined this write.';
+  }
+  await fs.mkdir(path.dirname(full), { recursive: true });
+  await fs.writeFile(full, a.content, 'utf8');
+  return `Wrote ${a.path} (${a.content.split('\n').length} lines).`;
+}
+
+async function editFile(ctx: ToolContext, a: { path: string; old_str: string; new_str: string }) {
+  const full = resolveInRoot(ctx.root, a.path);
+  const original = await fs.readFile(full, 'utf8');
+  // Models often normalize line endings; match against LF and restore CRLF if the file uses it.
+  const crlf = original.includes('\r\n');
+  const text = crlf ? original.replace(/\r\n/g, '\n') : original;
+  const oldStr = a.old_str.replace(/\r\n/g, '\n');
+  const count = text.split(oldStr).length - 1;
+  if (count === 0) {
+    return 'Error: old_str was not found in the file. Read the file again and copy the text exactly, including indentation.';
+  }
+  if (count > 1) {
+    return `Error: old_str occurs ${count} times. Include more surrounding lines so it is unique.`;
+  }
+  if (ctx.approveEdits && !(await confirm(`PerDev wants to edit ${a.path}`, `- ${a.old_str}\n+ ${a.new_str}`))) {
+    return 'Error: the user declined this edit.';
+  }
+  let updated = text.replace(oldStr, () => a.new_str.replace(/\r\n/g, '\n'));
+  if (crlf) updated = updated.replace(/\n/g, '\r\n');
+  await fs.writeFile(full, updated, 'utf8');
+  return `Edited ${a.path}.`;
+}
+
+async function listFiles(a: { pattern?: string }) {
+  const uris = await vscode.workspace.findFiles(a.pattern || '**/*', EXCLUDE, 500);
+  const paths = uris.map((u) => vscode.workspace.asRelativePath(u)).sort();
+  return paths.length ? truncate(paths.join('\n')) : 'No files matched.';
+}
+
+async function search(ctx: ToolContext, a: { regex: string; glob?: string }) {
+  let re: RegExp;
+  try {
+    re = new RegExp(a.regex);
+  } catch (e: any) {
+    return `Error: invalid regex: ${e.message}`;
+  }
+  const uris = await vscode.workspace.findFiles(a.glob || '**/*', EXCLUDE, 2000);
+  const hits: string[] = [];
+  for (const uri of uris) {
+    if (ctx.signal.aborted || hits.length >= 200) break;
+    let text: string;
+    try {
+      const stat = await fs.stat(uri.fsPath);
+      if (stat.size > 1_000_000) continue;
+      text = await fs.readFile(uri.fsPath, 'utf8');
+    } catch {
+      continue;
+    }
+    if (text.includes('\u0000')) continue; // binary
+    const rel = vscode.workspace.asRelativePath(uri);
+    text.split(/\r?\n/).forEach((line, i) => {
+      if (hits.length < 200 && re.test(line)) hits.push(`${rel}:${i + 1}: ${line.trim().slice(0, 200)}`);
+    });
+  }
+  return hits.length ? truncate(hits.join('\n')) : 'No matches.';
+}
+
+async function runCommand(ctx: ToolContext, a: { command: string }) {
+  if (ctx.approveCommands && !(await confirm('PerDev wants to run a command', a.command))) {
+    return 'Error: the user declined to run this command.';
+  }
+  return new Promise<string>((resolve) => {
+    const child = exec(
+      a.command,
+      { cwd: ctx.root, timeout: 120_000, maxBuffer: 10 * 1024 * 1024, windowsHide: true },
+      (err, stdout, stderr) => {
+        const code = err ? ((err as any).code ?? 1) : 0;
+        const timedOut = err && (err as any).killed ? ' (timed out or stopped)' : '';
+        resolve(truncate(`exit code: ${code}${timedOut}\n${stdout}${stderr ? `\n[stderr]\n${stderr}` : ''}`));
+      },
+    );
+    ctx.signal.addEventListener('abort', () => child.kill(), { once: true });
+  });
+}
