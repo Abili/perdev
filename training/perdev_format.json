@@ -31,7 +31,7 @@
       "type": "function",
       "function": {
         "name": "write_file",
-        "description": "Create a new file or completely overwrite an existing one.",
+        "description": "Create a new file or completely overwrite an existing one. To change part of an existing file, use edit_file instead.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -41,7 +41,7 @@
             },
             "content": {
               "type": "string",
-              "description": "Full file content"
+              "description": "Full file content, exactly as it should be saved (no line numbers)"
             }
           },
           "required": [
@@ -55,7 +55,7 @@
       "type": "function",
       "function": {
         "name": "edit_file",
-        "description": "Replace an exact snippet in a file. old_str must match the file exactly (including indentation) and occur exactly once. Read the file first.",
+        "description": "Replace an exact snippet in a file. This is the preferred way to change existing files. old_str must match the file exactly (including indentation) and occur exactly once. Read the file first.",
         "parameters": {
           "type": "object",
           "properties": {
@@ -64,11 +64,11 @@
             },
             "old_str": {
               "type": "string",
-              "description": "Exact text to replace"
+              "description": "Exact text to replace, copied from the file without the line numbers read_file shows"
             },
             "new_str": {
               "type": "string",
-              "description": "Replacement text"
+              "description": "Replacement text (no line numbers)"
             }
           },
           "required": [

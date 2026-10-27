@@ -6,7 +6,50 @@ import { trimContext } from '../context';
 import { cleanCompletion, fimFormatFor } from '../fim';
 import { ChatMessage } from '../llm';
 import { SessionStore, newSessionId, titleFrom } from '../sessions';
-import { carryOverSection } from '../prompt';
+import { carryOverSection, looksLikeUnfinishedPlan } from '../prompt';
+
+test('a reply that only plans a change is detected; a finished summary is not', () => {
+  // Real replies from the local 7B model.
+  assert.equal(looksLikeUnfinishedPlan('The error occurs because it divides by zero. To fix this, we need to add a check to ensure that the list is not empty.'), true);
+  assert.equal(looksLikeUnfinishedPlan('I fixed the `average` function in `calc.py` to handle the empty list. The tests now pass successfully.'), false);
+  assert.equal(looksLikeUnfinishedPlan('The function returns the sum of two numbers.'), false);
+});
+import { planEdit, stripLineNumbers } from '../toolSpecs';
+
+test('edit with a line-numbered old_str still applies (real 7B output)', () => {
+  const file = 'def average(numbers):\n    return sum(numbers) / len(numbers)\n';
+  const p = planEdit(file,
+    '    13      return sum(numbers) / len(numbers)\n',
+    '    13      if len(numbers) > 0:\n    14          return sum(numbers) / len(numbers)\n    15      else:\n    16          return 0\n');
+  assert.equal(p.ok, true);
+  if (p.ok) {
+    assert.equal(p.stripped, true);
+    assert.equal(file.replace(p.oldStr, p.newStr), 'def average(numbers):\n    if len(numbers) > 0:\n        return sum(numbers) / len(numbers)\n    else:\n        return 0\n');
+  }
+});
+
+test('edits that really contain numbers, or match nothing, are not rewritten', () => {
+  const file = 'x = [\n  1  ,\n  2  ,\n]\n';
+  const p = planEdit(file, '  1  ,\n  2  ,', '  3  ,');
+  assert.equal(p.ok && p.stripped, false); // exact text is in the file: used as-is
+  assert.equal(planEdit('a = 1\n', '    5  b = 2', 'c').ok, false);
+  assert.match((planEdit('a\na\n', 'a', 'b') as any).error, /occurs 2 times/);
+});
+
+test('line numbers copied from read_file are stripped', () => {
+  // Exactly what the 7B model produced in a real test, including an empty line.
+  const copied = '    1  # A tiny sandbox\n    2  \n    3  def add(a, b):\n    4      return a + b';
+  assert.deepEqual(stripLineNumbers(copied), { text: '# A tiny sandbox\n\ndef add(a, b):\n    return a + b', stripped: true });
+  // Empty line that lost its trailing spaces.
+  assert.equal(stripLineNumbers('   12  x = 1\n   13\n   14  y = 2').text, 'x = 1\n\ny = 2');
+});
+
+test('real content that merely starts with numbers is left alone', () => {
+  const data = '1  apple\n5  banana\n9  cherry'; // not consecutive
+  assert.equal(stripLineNumbers(data).stripped, false);
+  assert.equal(stripLineNumbers('def f():\n    return 1').stripped, false);
+  assert.equal(stripLineNumbers('    7  single line').stripped, false); // too little evidence
+});
 import * as fsSync from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

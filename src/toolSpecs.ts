@@ -26,12 +26,12 @@ export const TOOL_SPECS: ToolSpec[] = [
     type: 'function',
     function: {
       name: 'write_file',
-      description: 'Create a new file or completely overwrite an existing one.',
+      description: 'Create a new file or completely overwrite an existing one. To change part of an existing file, use edit_file instead.',
       parameters: {
         type: 'object',
         properties: {
           path: { type: 'string', description: 'Path relative to the workspace root' },
-          content: { type: 'string', description: 'Full file content' },
+          content: { type: 'string', description: 'Full file content, exactly as it should be saved (no line numbers)' },
         },
         required: ['path', 'content'],
       },
@@ -42,13 +42,13 @@ export const TOOL_SPECS: ToolSpec[] = [
     function: {
       name: 'edit_file',
       description:
-        'Replace an exact snippet in a file. old_str must match the file exactly (including indentation) and occur exactly once. Read the file first.',
+        'Replace an exact snippet in a file. This is the preferred way to change existing files. old_str must match the file exactly (including indentation) and occur exactly once. Read the file first.',
       parameters: {
         type: 'object',
         properties: {
           path: { type: 'string' },
-          old_str: { type: 'string', description: 'Exact text to replace' },
-          new_str: { type: 'string', description: 'Replacement text' },
+          old_str: { type: 'string', description: 'Exact text to replace, copied from the file without the line numbers read_file shows' },
+          new_str: { type: 'string', description: 'Replacement text (no line numbers)' },
         },
         required: ['path', 'old_str', 'new_str'],
       },
@@ -94,6 +94,52 @@ export const TOOL_SPECS: ToolSpec[] = [
     },
   },
 ];
+
+// Small models sometimes copy read_file's "   12  " line-number prefixes into
+// the text they write. If every non-empty line carries such a prefix, remove it.
+// Returns the text unchanged otherwise.
+// minLines: how many numbered lines count as evidence (callers that can verify
+// the result against the file may pass 1).
+export function stripLineNumbers(text: string, minLines = 2): { text: string; stripped: boolean } {
+  const lines = text.split('\n');
+  const nonEmpty = lines.filter((l) => l.trim().length > 0);
+  const prefix = /^ {0,4}(\d{1,5})(?:  |$)/;
+  if (nonEmpty.length < minLines || !nonEmpty.every((l) => prefix.test(l))) return { text, stripped: false };
+  // Numbers must count up by one, like read_file output, to avoid touching real data.
+  const nums = nonEmpty.map((l) => Number(l.match(prefix)![1]));
+  if (!nums.every((n, i) => i === 0 || n === nums[i - 1] + 1)) return { text, stripped: false };
+  return { text: lines.map((l) => l.replace(prefix, '')).join('\n'), stripped: true };
+}
+
+// Works out what an edit_file call should replace in `text` (LF line endings).
+// Accepts old_str/new_str with read_file line numbers when that is clearly what
+// happened: the numbered text isn't in the file but the un-numbered text is.
+export function planEdit(
+  text: string,
+  oldStr: string,
+  newStr: string,
+): { ok: true; oldStr: string; newStr: string; stripped: boolean } | { ok: false; error: string } {
+  oldStr = oldStr.replace(/\r\n/g, '\n');
+  newStr = newStr.replace(/\r\n/g, '\n');
+  let stripped = false;
+  if (!text.includes(oldStr)) {
+    const o = stripLineNumbers(oldStr, 1);
+    if (o.stripped && text.includes(o.text)) {
+      oldStr = o.text;
+      stripped = true;
+      const n = stripLineNumbers(newStr, 1);
+      if (n.stripped) newStr = n.text;
+    }
+  }
+  const count = oldStr ? text.split(oldStr).length - 1 : 0;
+  if (count === 0) {
+    return { ok: false, error: 'Error: old_str was not found in the file. Read the file again and copy the text exactly, including indentation.' };
+  }
+  if (count > 1) {
+    return { ok: false, error: `Error: old_str occurs ${count} times. Include more surrounding lines so it is unique.` };
+  }
+  return { ok: true, oldStr, newStr, stripped };
+}
 
 // Same truncation the tools apply at runtime; training data uses it too.
 export function truncate(s: string): string {

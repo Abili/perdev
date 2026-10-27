@@ -37,11 +37,13 @@ export async function streamChat(
   tools: ToolSpec[],
   onText: (delta: string) => void,
   signal: AbortSignal,
+  temperature = 0.2,
 ): Promise<StreamResult> {
   const res = await fetch(`${cfg.baseUrl.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
-    body: JSON.stringify({ model: cfg.model, messages, ...(tools.length ? { tools } : {}), stream: true, temperature: 0.2 }),
+    // max_tokens stops a runaway reply (small models sometimes repeat themselves).
+    body: JSON.stringify({ model: cfg.model, messages, ...(tools.length ? { tools } : {}), stream: true, temperature, max_tokens: 2048 }),
     signal,
   });
   if (!res.ok || !res.body) {

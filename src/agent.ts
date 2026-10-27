@@ -4,7 +4,7 @@
 import { ChatMessage, LlmConfig, streamChat } from './llm';
 import { TOOL_SPECS, runTool, ToolContext } from './tools';
 import { conversationSize, trimContext } from './context';
-import { carryOverSection, HANDOFF_PROMPT, systemPrompt } from './prompt';
+import { carryOverSection, HANDOFF_PROMPT, looksLikeUnfinishedPlan, systemPrompt } from './prompt';
 
 export type AgentEvent =
   | { type: 'text'; delta: string }
@@ -73,23 +73,34 @@ export class Agent {
     };
 
     let outcome: 'done' | 'stopped' | 'error' | 'max_steps' = 'max_steps';
+    let toolsUsed = 0;
+    let retries = 0;
+    let temperature: number | undefined;
     try {
       for (let step = 0; step < opts.maxSteps; step++) {
         trimContext(this.messages, opts.maxContextChars);
-        const result = await streamChat(cfg, this.messages, TOOL_SPECS, (d) => emit({ type: 'text', delta: d }), signal);
+        const result = await streamChat(cfg, this.messages, TOOL_SPECS, (d) => emit({ type: 'text', delta: d }), signal, temperature);
         emit({ type: 'assistant_end' });
-
-        this.messages.push({
-          role: 'assistant',
-          content: result.content || null,
-          ...(result.toolCalls.length ? { tool_calls: result.toolCalls } : {}),
-        });
+        temperature = undefined;
 
         if (result.toolCalls.length === 0) {
+          // Mid-task, small models sometimes stop to describe the next change instead
+          // of making it. Measured on Qwen2.5-Coder-7B: telling it to act afterwards
+          // doesn't work (it just ends), but re-asking the same step usually does.
+          // So drop that reply and retry (up to twice), a little less deterministically.
+          if (toolsUsed > 0 && retries < 2 && (!result.content.trim() || looksLikeUnfinishedPlan(result.content))) {
+            retries++;
+            temperature = 0.4;
+            continue;
+          }
+          this.messages.push({ role: 'assistant', content: result.content || null });
           outcome = 'done';
           break;
         }
 
+        this.messages.push({ role: 'assistant', content: result.content || null, tool_calls: result.toolCalls });
+
+        toolsUsed += result.toolCalls.length;
         for (const call of result.toolCalls) {
           if (signal.aborted) break;
           emit({ type: 'tool_start', id: call.id, name: call.function.name, args: call.function.arguments });

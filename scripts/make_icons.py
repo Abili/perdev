@@ -50,9 +50,29 @@ def render(background=True) -> Image.Image:
     return img
 
 
-big = render()
-for size in (128, 256, 512):
-    big.resize((size, size), Image.LANCZOS).save(MEDIA / f"perdev-{size}.png")
-big.resize((256, 256), Image.LANCZOS).save(
-    MEDIA / "perdev.ico", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
-print("wrote", ", ".join(p.name for p in sorted(MEDIA.glob("perdev*"))))
+def installer_bitmaps(folder: Path):
+    """Redraw the Windows installer's inno-*.bmp images (same sizes) with the PerDev logo."""
+    logo = render()
+    for bmp in sorted(folder.glob("inno-*.bmp")):
+        w, h = Image.open(bmp).size
+        canvas = Image.new("RGB", (w, h), (255, 255, 255))
+        side = int(min(w, h) * (0.6 if "big" in bmp.name else 0.9))
+        mark = logo.resize((side, side), Image.LANCZOS)
+        top = (h - side) // 3 if "big" in bmp.name else (h - side) // 2
+        canvas.paste(mark, ((w - side) // 2, top), mark)
+        canvas.save(bmp)
+        print("redrew", bmp.name, f"{w}x{h}")
+
+
+if __name__ == "__main__":
+    import sys
+
+    if len(sys.argv) == 3 and sys.argv[1] == "--inno":
+        installer_bitmaps(Path(sys.argv[2]))
+        sys.exit(0)
+    big = render()
+    for size in (128, 256, 512):
+        big.resize((size, size), Image.LANCZOS).save(MEDIA / f"perdev-{size}.png")
+    big.resize((256, 256), Image.LANCZOS).save(
+        MEDIA / "perdev.ico", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+    print("wrote", ", ".join(p.name for p in sorted(MEDIA.glob("perdev*"))))

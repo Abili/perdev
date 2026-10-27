@@ -1,3 +1,11 @@
+// True when a reply only describes the next change instead of making it or
+// reporting that the work is done.
+export function looksLikeUnfinishedPlan(text: string): boolean {
+  const plan = /\b(we need to|need to|let's|let me|i'll|i will|we should|to fix this|we can fix|next,? (i|we))\b/i;
+  const finished = /\b(i (fixed|changed|updated|added|made)|i've (fixed|changed|updated|added|made)|now pass|tests pass|all tests|is now fixed|have been (fixed|made))\b/i;
+  return plan.test(text) && !finished.test(text);
+}
+
 // Asked of the model when a long chat is continued in a new, branched chat.
 export const HANDOFF_PROMPT = `This chat is getting too long, so the work will continue in a new chat that cannot see this conversation. Write a handoff note for it. Use these headings:
 

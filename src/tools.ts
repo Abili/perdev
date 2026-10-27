@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { exec } from 'child_process';
-import { TOOL_SPECS, truncate } from './toolSpecs';
+import { TOOL_SPECS, planEdit, stripLineNumbers, truncate } from './toolSpecs';
 
 export { TOOL_SPECS };
 
@@ -73,14 +73,17 @@ async function readFile(ctx: ToolContext, a: { path: string; offset?: number; li
   return truncate(body + more);
 }
 
+const NUMBERS_NOTE = ' Note: read_file line numbers were removed from your text; never include them.';
+
 async function writeFile(ctx: ToolContext, a: { path: string; content: string }) {
   const full = resolveInRoot(ctx.root, a.path);
-  if (ctx.approveEdits && !(await confirm(`PerDev wants to write ${a.path}`, a.content.slice(0, 1500)))) {
+  const { text: content, stripped } = stripLineNumbers(a.content);
+  if (ctx.approveEdits && !(await confirm(`PerDev wants to write ${a.path}`, content.slice(0, 1500)))) {
     return 'Error: the user declined this write.';
   }
   await fs.mkdir(path.dirname(full), { recursive: true });
-  await fs.writeFile(full, a.content, 'utf8');
-  return `Wrote ${a.path} (${a.content.split('\n').length} lines).`;
+  await fs.writeFile(full, content, 'utf8');
+  return `Wrote ${a.path} (${content.split('\n').length} lines).${stripped ? NUMBERS_NOTE : ''}`;
 }
 
 async function editFile(ctx: ToolContext, a: { path: string; old_str: string; new_str: string }) {
@@ -89,21 +92,16 @@ async function editFile(ctx: ToolContext, a: { path: string; old_str: string; ne
   // Models often normalize line endings; match against LF and restore CRLF if the file uses it.
   const crlf = original.includes('\r\n');
   const text = crlf ? original.replace(/\r\n/g, '\n') : original;
-  const oldStr = a.old_str.replace(/\r\n/g, '\n');
-  const count = text.split(oldStr).length - 1;
-  if (count === 0) {
-    return 'Error: old_str was not found in the file. Read the file again and copy the text exactly, including indentation.';
-  }
-  if (count > 1) {
-    return `Error: old_str occurs ${count} times. Include more surrounding lines so it is unique.`;
-  }
-  if (ctx.approveEdits && !(await confirm(`PerDev wants to edit ${a.path}`, `- ${a.old_str}\n+ ${a.new_str}`))) {
+  const plan = planEdit(text, a.old_str ?? '', a.new_str ?? '');
+  if (!plan.ok) return plan.error;
+  const { oldStr, newStr, stripped } = plan;
+  if (ctx.approveEdits && !(await confirm(`PerDev wants to edit ${a.path}`, `- ${oldStr}\n+ ${newStr}`))) {
     return 'Error: the user declined this edit.';
   }
-  let updated = text.replace(oldStr, () => a.new_str.replace(/\r\n/g, '\n'));
+  let updated = text.replace(oldStr, () => newStr);
   if (crlf) updated = updated.replace(/\n/g, '\r\n');
   await fs.writeFile(full, updated, 'utf8');
-  return `Edited ${a.path}.`;
+  return `Edited ${a.path}.${stripped ? NUMBERS_NOTE : ''}`;
 }
 
 async function listFiles(a: { pattern?: string }) {
