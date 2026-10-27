@@ -116,10 +116,7 @@ export class Agent {
 function friendlyError(e: any, cfg: LlmConfig): string {
   const msg = e?.message ?? String(e);
   if (/fetch failed|ECONNREFUSED/i.test(msg) || e?.cause?.code === 'ECONNREFUSED') {
-    return `Could not reach the model server at ${cfg.baseUrl}. Is Ollama running? (Start it from the Start menu or run "ollama serve".)`;
-  }
-  if (/not found/i.test(msg) && /model/i.test(msg)) {
-    return `Model "${cfg.model}" is not installed. Run: ollama pull ${cfg.model}  (or change perdev.chatModel)`;
+    return `Could not reach the model server at ${cfg.baseUrl}. Run "PerDev: Start Local Model Servers" from the command palette and check the "PerDev Servers" output for errors.`;
   }
   return msg;
 }

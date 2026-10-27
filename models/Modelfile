@@ -1,9 +1,0 @@
-# PerDev's chat/agent model.
-# Today it wraps an open coding model with a bigger context window.
-# After fine-tuning, change FROM to your own GGUF file, e.g.:
-#   FROM ./perdev-coder-v1.Q4_K_M.gguf
-FROM qwen2.5-coder:7b
-
-# 16k tokens of context fits comfortably in 8 GB of VRAM with a 7B Q4 model.
-PARAMETER num_ctx 16384
-PARAMETER temperature 0.2

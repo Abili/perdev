@@ -34,6 +34,7 @@
       { "command": "perdev.newChat", "title": "PerDev: New Chat", "icon": "$(add)" },
       { "command": "perdev.stop", "title": "PerDev: Stop Agent", "icon": "$(debug-stop)" },
       { "command": "perdev.openDataFolder", "title": "PerDev: Open Training Data Folder" },
+      { "command": "perdev.startServers", "title": "PerDev: Start Local Model Servers" },
       { "command": "perdev.toggleAutocomplete", "title": "PerDev: Toggle Autocomplete" }
     ],
     "menus": {
@@ -47,13 +48,13 @@
       "properties": {
         "perdev.baseUrl": {
           "type": "string",
-          "default": "http://localhost:11434/v1",
-          "description": "OpenAI-compatible API base URL used for chat and the agent. Point it at any server that speaks /chat/completions."
+          "default": "http://127.0.0.1:8080/v1",
+          "description": "OpenAI-compatible API base URL used for chat and the agent. Point it at any server that speaks /chat/completions (llama.cpp, Ollama at http://localhost:11434/v1, vLLM, LM Studio...)."
         },
         "perdev.apiKey": {
           "type": "string",
-          "default": "ollama",
-          "description": "API key sent as a Bearer token. Ollama ignores it."
+          "default": "local",
+          "description": "API key sent as a Bearer token. Local servers ignore it."
         },
         "perdev.chatModel": {
           "type": "string",
@@ -65,15 +66,51 @@
           "default": true,
           "description": "Enable inline (tab) autocomplete."
         },
-        "perdev.autocomplete.ollamaUrl": {
+        "perdev.autocomplete.backend": {
           "type": "string",
-          "default": "http://localhost:11434",
-          "description": "Ollama server used for fill-in-the-middle autocomplete (native /api/generate)."
+          "enum": ["llamacpp", "ollama"],
+          "default": "llamacpp",
+          "description": "Server type for autocomplete: llama.cpp (/completion) or Ollama (/api/generate)."
+        },
+        "perdev.autocomplete.url": {
+          "type": "string",
+          "default": "http://127.0.0.1:8081",
+          "description": "Autocomplete server URL."
         },
         "perdev.autocomplete.model": {
           "type": "string",
-          "default": "qwen2.5-coder:1.5b-base",
-          "description": "Base (non-instruct) model used for fill-in-the-middle autocomplete."
+          "default": "qwen2.5-coder",
+          "description": "Autocomplete model name. Used to pick the fill-in-the-middle prompt format (qwen, deepseek, codestral, starcoder) and, for Ollama, which model to run."
+        },
+        "perdev.server.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start local llama.cpp servers for chat and autocomplete when VS Code opens, if they aren't already running."
+        },
+        "perdev.server.llamaServerPath": {
+          "type": "string",
+          "default": "E:\\Tools\\llamacpp\\llama-server.exe",
+          "description": "Path to llama-server.exe."
+        },
+        "perdev.server.chatModelPath": {
+          "type": "string",
+          "default": "E:\\Tools\\models\\Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf",
+          "description": "GGUF model file for chat and the agent. Point this at your own fine-tuned model later."
+        },
+        "perdev.server.autocompleteModelPath": {
+          "type": "string",
+          "default": "E:\\Tools\\models\\Qwen2.5-Coder-1.5B.Q4_K_M.gguf",
+          "description": "GGUF base model file for autocomplete."
+        },
+        "perdev.server.chatContext": {
+          "type": "number",
+          "default": 16384,
+          "description": "Context window (tokens) for the chat server. Lower it if you run out of GPU memory."
+        },
+        "perdev.server.device": {
+          "type": "string",
+          "default": "Vulkan1",
+          "description": "llama.cpp device to run on (see llama-server --list-devices). Vulkan1 is the RTX 3070 on this PC; empty lets llama.cpp choose."
         },
         "perdev.autocomplete.debounceMs": {
           "type": "number",
@@ -116,7 +153,7 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "npm run compile && node --test out/test/",
+    "test": "npm run compile && node --test out/test/run.js",
     "package": "vsce package --no-dependencies"
   },
   "devDependencies": {

@@ -58,30 +58,31 @@ export class AutocompleteProvider implements vscode.InlineCompletionItemProvider
     const lineAfter = doc.lineAt(pos.line).text.slice(pos.character);
     if (/^\w/.test(lineAfter)) return;
 
-    const model = c.get<string>('autocomplete.model', 'qwen2.5-coder:1.5b-base');
-    const url = c.get<string>('autocomplete.ollamaUrl', 'http://localhost:11434').replace(/\/$/, '');
+    const model = c.get<string>('autocomplete.model', 'qwen2.5-coder');
+    const backend = c.get<string>('autocomplete.backend', 'llamacpp');
+    const url = c.get<string>('autocomplete.url', 'http://127.0.0.1:8081').replace(/\/$/, '');
     const fmt = fimFormatFor(model);
+    const prompt = fmt.build(prefix, suffix);
+    const stop = [...fmt.stop, '\n\n\n'];
 
     const controller = new AbortController();
     const sub = token.onCancellationRequested(() => controller.abort());
     let completion = '';
     try {
-      const res = await fetch(`${url}/api/generate`, {
+      // llama.cpp: POST /completion -> { content }. Ollama: POST /api/generate (raw) -> { response }.
+      const [endpoint, body] =
+        backend === 'ollama'
+          ? ['/api/generate', { model, prompt, raw: true, stream: false, keep_alive: '30m', options: { temperature: 0.1, num_predict: 128, stop } }]
+          : ['/completion', { prompt, n_predict: 128, temperature: 0.1, stop, cache_prompt: true }];
+      const res = await fetch(`${url}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          prompt: fmt.build(prefix, suffix),
-          raw: true,
-          stream: false,
-          keep_alive: '30m',
-          options: { temperature: 0.1, num_predict: 128, stop: [...fmt.stop, '\n\n\n'] },
-        }),
+        body: JSON.stringify(body),
         signal: controller.signal,
       });
       if (!res.ok) return;
       const data: any = await res.json();
-      completion = cleanCompletion(String(data.response ?? ''), suffix);
+      completion = cleanCompletion(String(data.content ?? data.response ?? ''), suffix);
     } catch {
       return; // server down or request cancelled: show nothing
     } finally {
