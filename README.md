@@ -1,6 +1,6 @@
 # PerDev
 
-A local-first AI coding agent for VS Code that runs on **your own model**, for free.
+A free, local-first AI code editor that runs on **your own model**. PerDev is its own app, built on the open-source VS Code core (via VSCodium: no telemetry, Open VSX extensions), with its AI built in.
 
 - **Agent chat** (sidebar): reads, searches and edits files and runs commands to finish real tasks.
 - **Tab autocomplete**: fill-in-the-middle ghost text from a small, fast local model.
@@ -8,17 +8,28 @@ A local-first AI coding agent for VS Code that runs on **your own model**, for f
 - **Training-data logging**: every agent session and every accepted or rejected completion is saved as JSONL, ready for fine-tuning your own model later. Nothing leaves your machine.
 - **Any OpenAI-compatible server**: llama.cpp by default (started automatically); Ollama, vLLM, LM Studio or a hosted API work by changing settings.
 
-## Setup (all on E:)
+## The PerDev app
+
+There are two ways to get the app:
+
+- **Built from source in the cloud (the real fork):** [.github/workflows/build-windows.yml](.github/workflows/build-windows.yml) compiles VS Code from source on GitHub's free Windows runners with VSCodium's build scripts, PerDev's branding ([scripts/brand-fork.js](scripts/brand-fork.js)) and the built-in AI. Run it from the repo's *Actions* tab and download the installer from the run's artifacts.
+- **Quick local build:** [scripts/build-app.js](scripts/build-app.js) turns a VSCodium release zip into `E:\Tools\PerDev\PerDev.exe` (rebranded, updater removed, AI built in, portable: all data stays in `E:\Tools\PerDev\data`). Run `npm run app` (close PerDev first).
+
+Both use the same branding code ([scripts/branding.js](scripts/branding.js)).
+
+## Local AI setup (all on E:)
 
 1. **llama.cpp** (Vulkan build, runs on the RTX 3070) is at `E:\Tools\llamacpp`. It was copied from Android Studio's bundled copy, so nothing extra had to be downloaded.
-2. **Models** go in `E:\Tools\models`. Run `scripts\download-models.cmd`; it resumes if the connection drops.
+2. **Models** go in `E:\Tools\models`. Run `scripts\download-models.cmd`; it resumes if the connection drops and only names a file when it's complete.
    - `Qwen2.5-Coder-1.5B.Q4_K_M.gguf` (0.94 GB): autocomplete
    - `Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf` (4.4 GB): chat and agent
-3. **Run the extension**: open this folder in VS Code and press **F5**. A second VS Code window opens on `playground/` with PerDev loaded, and PerDev starts both model servers itself (see the "PerDev Servers" output). Click the PerDev logo in the activity bar.
+3. Open PerDev. It starts both model servers itself on ports 8780/8781 (see the *PerDev Servers* output). The first time you open a folder, choose **Trust**; the agent needs it to run commands.
 
-To run the servers without VS Code, use `scripts\start-servers.cmd`. To test the agent from a terminal: `node scripts/e2e-agent.js playground "run the tests and fix what fails"`.
+Try: *"run the tests and fix anything that fails"* in `playground/`.
 
-Try: *"run the tests and fix anything that fails"* in the playground.
+**How well the base 7B model works as an agent (measured):** it reliably runs tests, reads the right files and summarizes correctly. The "make the fix" step is the weak spot, right roughly 60–75% of the time in local tests. PerDev guards against its common mistakes (copying `read_file` line numbers into edits, describing a fix instead of making it). Fine-tuning ([Training your model](#training-your-model)) is how to improve it.
+
+For extension development, open this folder in VS Code/PerDev and press **F5**. To run the servers by hand: `scripts\start-servers.cmd`.
 
 ## Development
 
