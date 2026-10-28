@@ -96,6 +96,32 @@ export const TOOL_SPECS: ToolSpec[] = [
   {
     type: 'function',
     function: {
+      name: 'update_plan',
+      description:
+        'Show the user your plan as a checklist. For a task with several steps, call it first with all the steps, then again with the full list whenever a step starts or finishes.',
+      parameters: {
+        type: 'object',
+        properties: {
+          steps: {
+            type: 'array',
+            description: 'All steps, in order',
+            items: {
+              type: 'object',
+              properties: {
+                text: { type: 'string', description: 'Short step, e.g. "Add shake detection"' },
+                status: { type: 'string', enum: ['pending', 'in_progress', 'done'] },
+              },
+              required: ['text', 'status'],
+            },
+          },
+        },
+        required: ['steps'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'lookup_docs',
       description:
         "Look something up in a language's or library's official documentation (via DevDocs). Use it when unsure how a function, class or API works instead of guessing. Returns the best matching section plus other matching pages.",

@@ -34,7 +34,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       else if (msg.type === 'new') this.newChat();
       else if (msg.type === 'branch') await this.branch();
       else if (msg.type === 'openSession') await this.openSession(String(msg.id));
+      else if (msg.type === 'setMode') await this.setMode(msg.mode === 'auto' ? 'auto' : 'manual');
+      else if (msg.type === 'ready') this.post({ type: 'mode', mode: agentMode() });
     });
+  }
+
+  // Auto: the agent works without asking. Manual: every edit and command needs your OK.
+  private async setMode(mode: 'auto' | 'manual') {
+    await vscode.workspace.getConfiguration('perdev').update('agent.mode', mode, vscode.ConfigurationTarget.Global);
+    this.post({ type: 'mode', mode });
   }
 
   // Put text in the chat box (e.g. a new project's first request), ready to send.
@@ -131,12 +139,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       {
         maxSteps: c.get<number>('agent.maxSteps', 25),
         maxContextChars,
-        approveCommands: c.get<boolean>('agent.approveCommands', true),
-        approveEdits: c.get<boolean>('agent.approveEdits', false),
+        // Manual mode asks before every edit, command and device action; Auto never asks.
+        approveCommands: agentMode() === 'manual',
+        approveEdits: agentMode() === 'manual',
         docs: c.get<boolean>('docs.enabled', true) ? this.docs() : undefined,
         extra,
-        confirm: async (title, detail) =>
-          (await vscode.window.showWarningMessage(title, { modal: true, detail: detail.slice(0, 1500) }, 'Allow')) === 'Allow',
+        confirm:
+          agentMode() === 'manual'
+            ? async (title, detail) => (await vscode.window.showWarningMessage(title, { modal: true, detail: detail.slice(0, 1500) }, 'Allow')) === 'Allow'
+            : undefined,
       },
       (event: AgentEvent) => {
         // Save after every step so a long or stuck run is never lost.
@@ -265,6 +276,10 @@ async function waitForModel(baseUrl: string, status: (t: string) => void, agent:
   }
 }
 
+export function agentMode(): 'auto' | 'manual' {
+  return vscode.workspace.getConfiguration('perdev').get<string>('agent.mode', 'manual') === 'auto' ? 'auto' : 'manual';
+}
+
 function stripEditorContext(text: string): string {
   return text.replace(/\n\n\[(Context|Workspace)[\s\S]*$/, '');
 }
@@ -316,6 +331,16 @@ function html(n: string) {
   details.tool.running summary::after { content: ' …'; }
   details.tool pre { max-height: 240px; overflow: auto; white-space: pre-wrap; }
   .error { color: var(--vscode-errorForeground); }
+  .plan { position: sticky; top: 0; z-index: 2; margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--vscode-panel-border); border-radius: 10px;
+    background: var(--vscode-sideBar-background, var(--vscode-editor-background)); box-shadow: 0 6px 16px -12px rgba(0,0,0,.6); }
+  .plan ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .plan li { display: flex; align-items: center; gap: 9px; line-height: 1.35; }
+  .plan .dot { width: 14px; height: 14px; flex: none; border-radius: 50%; border: 1.5px dashed var(--vscode-descriptionForeground); }
+  .plan li.in_progress .dot { border: 2px solid var(--vscode-progressBar-background); border-right-color: transparent; border-style: solid; animation: spin .8s linear infinite; }
+  .plan li.done .dot { border: 0; background: var(--vscode-progressBar-background); position: relative; }
+  .plan li.done .dot::after { content: ""; position: absolute; left: 4.5px; top: 2px; width: 3.5px; height: 7px; border: solid #fff; border-width: 0 1.8px 1.8px 0; transform: rotate(45deg); }
+  .plan li.done span { color: var(--vscode-descriptionForeground); }
+  .plan li.in_progress span { color: var(--vscode-foreground); font-weight: 600; }
   .activity { display: flex; align-items: center; gap: 8px; color: var(--vscode-descriptionForeground); font-size: 0.92em; margin: 2px 0 12px; }
   .activity .spin { width: 12px; height: 12px; flex: none; border: 2px solid var(--vscode-progressBar-background); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
   .activity .label { background: linear-gradient(90deg, var(--vscode-descriptionForeground) 35%, var(--vscode-foreground) 50%, var(--vscode-descriptionForeground) 65%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 2.2s linear infinite; }
@@ -342,7 +367,15 @@ function html(n: string) {
   #meterBar { flex: 1; height: 4px; border-radius: 2px; background: var(--vscode-input-background); overflow: hidden; }
   #meterFill { height: 100%; width: 0; background: var(--vscode-progressBar-background); transition: width .3s; }
   #meterFill.warn { background: var(--vscode-editorWarning-foreground); }
-  #composer { border-top: 1px solid var(--vscode-panel-border); padding: 8px; display: flex; gap: 6px; align-items: flex-end; }
+  #composer { border-top: 1px solid var(--vscode-panel-border); padding: 6px 8px 8px; display: flex; gap: 6px; align-items: flex-end; flex-wrap: wrap; }
+  #composer .row { display: flex; gap: 6px; align-items: flex-end; width: 100%; }
+  .modes { display: flex; align-items: center; gap: 8px; width: 100%; font-size: 0.86em; color: var(--vscode-descriptionForeground); }
+  .seg { display: inline-flex; border: 1px solid var(--vscode-panel-border); border-radius: 999px; padding: 2px; background: var(--vscode-input-background); }
+  .seg button { background: none; color: var(--vscode-descriptionForeground); border: 0; border-radius: 999px; padding: 3px 10px; font-size: 0.95em; cursor: pointer; }
+  .seg button:hover { background: none; color: var(--vscode-foreground); }
+  .seg button[aria-pressed="true"] { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+  .seg button.auto[aria-pressed="true"] { background: var(--vscode-editorWarning-foreground, #cca700); color: #111; }
+  .modes .hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   textarea { flex: 1; resize: none; min-height: 34px; max-height: 160px; font-family: inherit; font-size: inherit; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--vscode-panel-border)); border-radius: 4px; padding: 6px; }
   textarea:focus { outline: 1px solid var(--vscode-focusBorder); }
   button { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 4px; padding: 7px 12px; cursor: pointer; }
@@ -355,8 +388,17 @@ function html(n: string) {
 <div id="banner">This chat is getting long, so the model will start forgetting older details.<br><button id="branchBtn">Continue in a new chat</button> <span class="link" id="dismissBtn">Not now</span></div>
 <div id="meter" title="How much of the model's memory this chat uses"><span id="meterLabel">Context 0%</span><div id="meterBar"><div id="meterFill"></div></div><span class="link" id="branchLink" title="Start a new chat that carries a summary of this one">New branch</span></div>
 <div id="composer">
+  <div class="modes">
+    <div class="seg" role="group" aria-label="How much the agent may do on its own">
+      <button id="modeManual" class="manual" aria-pressed="true" title="Manual: approve every file change, command and device action">Manual</button>
+      <button id="modeAuto" class="auto" aria-pressed="false" title="Auto: the agent works on its own, without asking">Auto</button>
+    </div>
+    <span class="hint" id="modeHint">You approve every change</span>
+  </div>
+  <div class="row">
   <textarea id="input" rows="1" placeholder="Ask or give a task (Enter to send, Shift+Enter for newline)"></textarea>
   <button id="send">Send</button>
+  </div>
 </div>
 <script nonce="${n}">
   const vscode = acquireVsCodeApi();
@@ -401,6 +443,18 @@ function html(n: string) {
     thinkEl.querySelector('summary').textContent = 'Thought for ' + Math.max(1, Math.round((Date.now() - thinkStart) / 1000)) + 's';
     thinkEl = null;
   }
+  // Live task checklist, pinned at the top of the chat.
+  let planEl = null;
+  function planState(s) { s = String(s || ''); return /done|complete/i.test(s) ? 'done' : /progress|active|doing|current|running/i.test(s) ? 'in_progress' : 'pending'; }
+  function renderPlan(steps) {
+    if (!Array.isArray(steps) || !steps.length) return;
+    if (!planEl) { planEl = document.createElement('div'); planEl.className = 'plan'; planEl.setAttribute('aria-label', 'Plan'); document.getElementById('empty')?.remove(); log.prepend(planEl); }
+    planEl.innerHTML = '<ol>' + steps.map((st) => '<li class="' + planState(st && st.status) + '"><i class="dot"></i><span>' + esc(String((st && (st.text || st.step || st.title)) || '')) + '</span></li>').join('') + '</ol>';
+  }
+  function settlePlan(finished) {
+    if (!planEl) return;
+    planEl.querySelectorAll('li.in_progress').forEach((li) => { li.className = finished ? 'done' : 'pending'; });
+  }
   function setRunning(r) { running = r; sendBtn.textContent = r ? 'Stop' : 'Send'; sendBtn.className = r ? 'secondary' : ''; if (lastUsage) showUsage(lastUsage); }
   function send() {
     if (running) { vscode.postMessage({ type: 'stop' }); return; }
@@ -410,6 +464,15 @@ function html(n: string) {
   }
   function branch() { if (!running) { banner.style.display = 'none'; vscode.postMessage({ type: 'branch' }); } }
   sendBtn.onclick = send;
+  function showMode(mode) {
+    document.getElementById('modeManual').setAttribute('aria-pressed', String(mode !== 'auto'));
+    document.getElementById('modeAuto').setAttribute('aria-pressed', String(mode === 'auto'));
+    document.getElementById('modeHint').textContent = mode === 'auto'
+      ? 'Works on its own. Dangerous commands are still refused.'
+      : 'You approve every change';
+  }
+  document.getElementById('modeManual').onclick = () => { showMode('manual'); vscode.postMessage({ type: 'setMode', mode: 'manual' }); };
+  document.getElementById('modeAuto').onclick = () => { showMode('auto'); vscode.postMessage({ type: 'setMode', mode: 'auto' }); };
   document.getElementById('branchBtn').onclick = branch;
   document.getElementById('branchLink').onclick = branch;
   document.getElementById('dismissBtn').onclick = () => { dismissed = true; banner.style.display = 'none'; };
@@ -433,8 +496,9 @@ function html(n: string) {
 
   window.addEventListener('message', ({ data }) => {
     if (data.type === 'prefill') { input.value = data.text; input.dispatchEvent(new Event('input')); input.focus(); return; }
-    if (data.type === 'clear') { log.innerHTML = '<div class="empty" id="empty">New chat. What should we build?</div>'; current = null; dismissed = false; return; }
+    if (data.type === 'clear') { log.innerHTML = '<div class="empty" id="empty">New chat. What should we build?</div>'; current = null; dismissed = false; planEl = null; return; }
     if (data.type === 'usage') { showUsage(data); return; }
+    if (data.type === 'mode') { showMode(data.mode); return; }
     if (data.type === 'user') { add('user', esc(data.text)); setRunning(true); current = null; startActivity('Starting…'); return; }
     if (data.type === 'branching') {
       setRunning(true);
@@ -474,6 +538,8 @@ function html(n: string) {
       endThinking();
       if (current && !currentText.trim()) current.remove();
       current = null;
+    } else if (e.type === 'tool_start' && e.name === 'update_plan') {
+      try { renderPlan(JSON.parse(e.args || '{}').steps); } catch {}
     } else if (e.type === 'tool_start') {
       const d = document.createElement('details'); d.className = 'tool running';
       d.innerHTML = '<summary>' + esc(e.label || summarize(e.name, e.args)) + '</summary><pre>' + esc(e.args || '') + '</pre>';
@@ -496,11 +562,13 @@ function html(n: string) {
       d.appendChild(img);
       keepActivityLast();
     } else if (e.type === 'done') {
+      settlePlan(e.outcome === 'done');
       endThinking(); stopActivity();
       setRunning(false); current = null;
       if (e.outcome === 'stopped') add('error', 'Stopped.');
     }
   });
+  vscode.postMessage({ type: 'ready' });
 </script>
 </body>
 </html>`;

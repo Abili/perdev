@@ -270,15 +270,18 @@
           "default": true,
           "description": "Let the agent look things up in official documentation (via devdocs.io). Only small indexes and single pages are downloaded, and they're cached next to your chats."
         },
-        "perdev.agent.approveCommands": {
-          "type": "boolean",
-          "default": true,
-          "description": "Ask before running shell commands."
-        },
-        "perdev.agent.approveEdits": {
-          "type": "boolean",
-          "default": false,
-          "description": "Ask before writing or editing files."
+        "perdev.agent.mode": {
+          "type": "string",
+          "enum": [
+            "manual",
+            "auto"
+          ],
+          "enumDescriptions": [
+            "Approve every file change, command and device action.",
+            "The agent works on its own without asking. Commands that could harm your PC (wiping disks, deleting outside the project) are still refused."
+          ],
+          "default": "manual",
+          "description": "How much the agent may do on its own (also switchable under the chat box)."
         },
         "perdev.dataDir": {
           "type": "string",

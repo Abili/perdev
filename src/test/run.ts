@@ -28,6 +28,17 @@ import { DocsLookup, extractSection, htmlToText, pickDocSet, rank } from '../doc
 import { McpClient, resultText } from '../mcp';
 import { describeActivity, partialField } from '../activity';
 import { androidPackage, androidProjectFiles } from '../androidTemplate';
+import { refusedCommand } from '../safety';
+
+test('safety net: dangerous commands are refused in any mode, normal ones run', () => {
+  const root = 'E:\\codingprojects\\notes';
+  for (const bad of ['format C:', 'diskpart', 'rm -rf /', 'rm -rf ~', 'Remove-Item -Recurse C:\\', 'del /s /q C:\\Users\\eco\\Documents', 'rm -rf /c/Users/eco', 'rm -rf ../other-project', 'shutdown /s /t 0', 'reg delete HKLM\\Software\\X /f']) {
+    assert.ok(refusedCommand(bad, root), `should refuse: ${bad}`);
+  }
+  for (const ok of ['npm test', 'python -m unittest -v', 'rm -rf build', 'rm -rf node_modules', 'del /q E:\\codingprojects\\notes\\tmp.txt', './gradlew assembleDebug', 'git status']) {
+    assert.equal(refusedCommand(ok, root), undefined, `should allow: ${ok}`);
+  }
+});
 import { looksLikeCodeForUser, looksLikeQuestion } from '../prompt';
 
 test('code pasted for the user (instead of written to files) is detected', () => {

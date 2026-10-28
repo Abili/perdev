@@ -7,6 +7,7 @@ import * as fs from 'fs/promises';
 import { exec } from 'child_process';
 import { TOOL_SPECS, formatCommandResult, planEdit, stripLineNumbers, truncate } from './toolSpecs';
 import { DocsLookup } from './docs';
+import { refusedCommand } from './safety';
 
 export { TOOL_SPECS };
 
@@ -56,6 +57,12 @@ export async function runTool(name: string, rawArgs: string, ctx: ToolContext): 
         return await search(ctx, args);
       case 'run_command':
         return await runCommand(ctx, args);
+      case 'update_plan': {
+        // The chat renders the checklist from this call's arguments.
+        const steps = Array.isArray(args.steps) ? args.steps : [];
+        const done = steps.filter((s: any) => /done|complete/i.test(s?.status ?? '')).length;
+        return steps.length ? `Plan shown to the user (${done}/${steps.length} done).` : 'Error: give "steps": a list of {text, status}.';
+      }
       case 'lookup_docs':
         if (!ctx.docs) return 'Error: documentation lookup is turned off (perdev.docs.enabled).';
         return truncate(await ctx.docs.lookup(args));
@@ -155,6 +162,9 @@ async function search(ctx: ToolContext, a: { regex: string; glob?: string }) {
 }
 
 async function runCommand(ctx: ToolContext, a: { command: string }) {
+  // Never run, whatever the mode: wiping disks, deleting outside the project...
+  const refused = refusedCommand(a.command ?? '', ctx.root);
+  if (refused) return `Error: ${refused}`;
   if (ctx.approveCommands && !(await confirm('PerDev wants to run a command', a.command))) {
     return 'Error: the user declined to run this command.';
   }

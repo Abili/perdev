@@ -25,6 +25,8 @@ export function describeActivity(name: string, args: string): string {
       return f('path') ? `Editing ${short(f('path')!)}` : 'Editing a file';
     case 'list_files':
       return 'Looking through the project files';
+    case 'update_plan':
+      return 'Updating the plan';
     case 'search':
       return f('regex') ? `Searching the code for “${short(f('regex')!, 40)}”` : 'Searching the code';
     case 'run_command':
