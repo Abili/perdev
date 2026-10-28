@@ -1,7 +1,8 @@
 // The agent loop: ask the model, run any tools it calls, feed results back,
 // repeat until it answers without tools.
 
-import { ChatMessage, continueAsToolCall, LlmConfig, streamChat } from './llm';
+import { ChatMessage, continueAsToolCall, LlmConfig, StreamHooks, streamChat } from './llm';
+import { describeActivity } from './activity';
 import { TOOL_SPECS, runTool, ToolContext } from './tools';
 import { truncate } from './toolSpecs';
 import { conversationSize, trimContext } from './context';
@@ -15,9 +16,11 @@ import { resultText } from './mcp';
 export type AgentEvent =
   | { type: 'text'; delta: string }
   | { type: 'assistant_end' }
-  | { type: 'tool_start'; id: string; name: string; args: string }
+  | { type: 'tool_start'; id: string; name: string; args: string; label?: string }
   | { type: 'tool_end'; id: string; result: string }
   | { type: 'error'; message: string }
+  | { type: 'status'; text: string } // what the agent is doing right now
+  | { type: 'thinking'; delta: string } // the model's visible reasoning, if it shows any
   | { type: 'image'; data: string; mimeType: string } // e.g. a device screenshot, for the user
   | { type: 'step' } // a round of tool calls finished (the chat is saved)
   | { type: 'done'; outcome: 'done' | 'stopped' | 'error' | 'max_steps' };
@@ -111,9 +114,19 @@ ${extra.notes}` : '');
     let temperature: number | undefined;
     const guard = new LoopGuard();
     try {
+      // Say what's happening at every moment, so the chat never sits silent.
+      let lastStatus = '';
+      const status = (text: string) => {
+        if (text !== lastStatus) emit({ type: 'status', text: (lastStatus = text) });
+      };
+      const hooks: StreamHooks = {
+        toolCall: (name, partial) => status(describeActivity(name, partial)),
+        reasoning: (delta) => emit({ type: 'thinking', delta }),
+      };
       for (let step = 0; step < opts.maxSteps; step++) {
         trimContext(this.messages, opts.maxContextChars);
-        let result = await streamChat(cfg, this.messages, tools, (d) => emit({ type: 'text', delta: d }), signal, temperature);
+        status(toolsUsed === 0 ? 'Thinking…' : 'Thinking about the results…');
+        let result = await streamChat(cfg, this.messages, tools, (d) => emit({ type: 'text', delta: d }), signal, temperature, hooks);
         emit({ type: 'assistant_end' });
         temperature = undefined;
 
@@ -131,9 +144,11 @@ ${extra.notes}` : '');
           const firstStepAnnouncement = toolsUsed === 0 && result.content.trim().length < 400 && looksLikeUnfinishedPlan(result.content);
           if (retries < 2 && (midTaskStall || asking || firstStepAnnouncement)) {
             retries++;
+            status('Planning the next step…');
             const keep = asking ? '' : result.content;
-            const call = await continueAsToolCall(cfg, this.messages, tools, keep, signal);
+            const call = await continueAsToolCall(cfg, this.messages, tools, keep, signal, hooks.toolCall);
             if (!call) {
+              status('Thinking again…');
               temperature = 0.4;
               continue;
             }
@@ -155,7 +170,12 @@ ${extra.notes}` : '');
         for (const call of result.toolCalls) {
           if (signal.aborted) break;
           const { name, arguments: args } = call.function;
-          emit({ type: 'tool_start', id: call.id, name, args });
+          emit({ type: 'tool_start', id: call.id, name, args, label: describeActivity(name, args) });
+          const asks =
+            (name === 'run_command' && opts.approveCommands) ||
+            ((name === 'write_file' || name === 'edit_file') && opts.approveEdits) ||
+            (!!extra?.has(name) && extra.needsApproval(name));
+          status(asks ? `Waiting for your approval: ${describeActivity(name, args)}` : `${describeActivity(name, args)}…`);
           const decision = guard.check(name, args);
           let output: string;
           if (decision.action === 'run' && extra?.has(name)) {

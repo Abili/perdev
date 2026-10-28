@@ -9,6 +9,7 @@ import { resolveShell, ShellPreference } from './shell';
 import { workspaceOverview } from './prompt';
 import { DocsLookup } from './docs';
 import { McpManager } from './mcpManager';
+import { describeActivity } from './activity';
 import * as path from 'path';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
@@ -119,7 +120,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const overview = firstMessage ? workspaceOverview(await listWorkspace()) : '';
     // Tools from MCP servers in settings (e.g. DroidLoop), for workspaces they apply to.
     const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
-    const extra = await this.mcp.toolsFor(root, c.get('mcpServers', {}), text);
+    const emitStatus = (t: string) => this.post({ type: 'event', event: { type: 'status', text: t } });
+    await waitForModel(cfg.baseUrl, emitStatus, agent);
+    const servers = c.get<Record<string, unknown>>('mcpServers', {});
+    if (Object.keys(servers).length) emitStatus('Getting tools ready…');
+    const extra = await this.mcp.toolsFor(root, servers as any, text);
     const outcome = await agent.run(
       withEditorContext(text) + overview,
       cfg,
@@ -212,7 +217,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (m.content) this.post({ type: 'event', event: { type: 'text', delta: m.content } });
         this.post({ type: 'event', event: { type: 'assistant_end' } });
         for (const tc of m.tool_calls ?? []) {
-          this.post({ type: 'event', event: { type: 'tool_start', id: tc.id, name: tc.function.name, args: tc.function.arguments } });
+          this.post({ type: 'event', event: { type: 'tool_start', id: tc.id, name: tc.function.name, args: tc.function.arguments, label: describeActivity(tc.function.name, tc.function.arguments) } });
         }
       } else if (m.role === 'tool') {
         this.post({ type: 'event', event: { type: 'tool_end', id: m.tool_call_id, result: m.content ?? '' } });
@@ -241,6 +246,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 function blankSession(): ChatSession {
   const now = new Date().toISOString();
   return { id: newSessionId(), title: 'New chat', createdAt: now, updatedAt: now, messages: [] };
+}
+
+// Before a request: if the local model is still loading (or starting), say so
+// instead of sitting silent. Returns as soon as it answers.
+async function waitForModel(baseUrl: string, status: (t: string) => void, agent: Agent) {
+  const health = baseUrl.replace(/\/v1\/?$/, '').replace(/\/$/, '') + '/health';
+  const deadline = Date.now() + 180_000;
+  while (Date.now() < deadline && agent) {
+    try {
+      const res = await fetch(health, { signal: AbortSignal.timeout(2000) });
+      if (res.status !== 503) return; // ready (or a server without /health)
+      status('Loading the AI model… (the first start takes about 30 s)');
+    } catch {
+      status('Waiting for the AI model to start…');
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
 }
 
 function stripEditorContext(text: string): string {
@@ -294,6 +316,16 @@ function html(n: string) {
   details.tool.running summary::after { content: ' …'; }
   details.tool pre { max-height: 240px; overflow: auto; white-space: pre-wrap; }
   .error { color: var(--vscode-errorForeground); }
+  .activity { display: flex; align-items: center; gap: 8px; color: var(--vscode-descriptionForeground); font-size: 0.92em; margin: 2px 0 12px; }
+  .activity .spin { width: 12px; height: 12px; flex: none; border: 2px solid var(--vscode-progressBar-background); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+  .activity .label { background: linear-gradient(90deg, var(--vscode-descriptionForeground) 35%, var(--vscode-foreground) 50%, var(--vscode-descriptionForeground) 65%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: shimmer 2.2s linear infinite; }
+  .activity .secs { margin-left: auto; opacity: .7; font-variant-numeric: tabular-nums; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @keyframes shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+  details.think { margin: 0 0 10px; border-left: 2px solid var(--vscode-descriptionForeground); padding-left: 8px; color: var(--vscode-descriptionForeground); font-size: 0.92em; }
+  details.think summary { cursor: pointer; }
+  details.think .t { white-space: pre-wrap; max-height: 220px; overflow-y: auto; margin-top: 4px; }
+  @media (prefers-reduced-motion: reduce) { .activity .spin, .activity .label { animation: none; } .activity .label { color: var(--vscode-descriptionForeground); } }
   .shot img { max-width: 100%; max-height: 420px; border: 1px solid var(--vscode-panel-border); border-radius: 6px; }
   .empty { color: var(--vscode-descriptionForeground); text-align: center; margin-top: 30%; padding: 0 16px; }
   .branch { border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 8px; margin: 0 0 12px; font-size: 0.92em; }
@@ -349,6 +381,26 @@ function html(n: string) {
     const d = document.createElement('div'); d.className = 'msg ' + cls; d.innerHTML = htmlStr; log.appendChild(d);
     log.scrollTop = log.scrollHeight; return d;
   }
+  // Live activity line: what the agent is doing, with elapsed time.
+  let activity = null, startedAt = 0, ticker = null, thinkEl = null, thinkStart = 0;
+  function tick() { if (activity) activity.querySelector('.secs').textContent = Math.floor((Date.now() - startedAt) / 1000) + 's'; }
+  function showActivity(text) {
+    if (!activity) {
+      activity = document.createElement('div'); activity.className = 'activity'; activity.setAttribute('role', 'status');
+      activity.innerHTML = '<span class="spin"></span><span class="label"></span><span class="secs"></span>';
+    }
+    activity.querySelector('.label').textContent = text;
+    log.appendChild(activity); tick(); log.scrollTop = log.scrollHeight;
+  }
+  function keepActivityLast() { if (activity) { log.appendChild(activity); log.scrollTop = log.scrollHeight; } }
+  function startActivity(text) { startedAt = Date.now(); clearInterval(ticker); ticker = setInterval(tick, 1000); showActivity(text); }
+  function stopActivity() { clearInterval(ticker); ticker = null; if (activity) activity.remove(); activity = null; }
+  function endThinking() {
+    if (!thinkEl) return;
+    thinkEl.open = false;
+    thinkEl.querySelector('summary').textContent = 'Thought for ' + Math.max(1, Math.round((Date.now() - thinkStart) / 1000)) + 's';
+    thinkEl = null;
+  }
   function setRunning(r) { running = r; sendBtn.textContent = r ? 'Stop' : 'Send'; sendBtn.className = r ? 'secondary' : ''; if (lastUsage) showUsage(lastUsage); }
   function send() {
     if (running) { vscode.postMessage({ type: 'stop' }); return; }
@@ -383,7 +435,7 @@ function html(n: string) {
     if (data.type === 'prefill') { input.value = data.text; input.dispatchEvent(new Event('input')); input.focus(); return; }
     if (data.type === 'clear') { log.innerHTML = '<div class="empty" id="empty">New chat. What should we build?</div>'; current = null; dismissed = false; return; }
     if (data.type === 'usage') { showUsage(data); return; }
-    if (data.type === 'user') { add('user', esc(data.text)); setRunning(true); current = null; return; }
+    if (data.type === 'user') { add('user', esc(data.text)); setRunning(true); current = null; startActivity('Starting…'); return; }
     if (data.type === 'branching') {
       setRunning(true);
       current = add('handoff', '<strong>Writing a handoff note for the new chat…</strong>\\n'); currentText = '';
@@ -403,16 +455,30 @@ function html(n: string) {
     }
     if (data.type !== 'event') return;
     const e = data.event;
-    if (e.type === 'text') {
+    if (e.type === 'status') {
+      if (running) showActivity(e.text);
+    } else if (e.type === 'thinking') {
+      if (!thinkEl) {
+        thinkEl = document.createElement('details'); thinkEl.className = 'think'; thinkEl.open = true; thinkStart = Date.now();
+        thinkEl.innerHTML = '<summary>Thinking…</summary><div class="t"></div>';
+        document.getElementById('empty')?.remove(); log.appendChild(thinkEl);
+      }
+      const t = thinkEl.querySelector('.t'); t.textContent += e.delta; t.scrollTop = t.scrollHeight;
+      keepActivityLast();
+    } else if (e.type === 'text') {
+      endThinking();
       if (!current) { current = add('assistant', ''); currentText = ''; }
-      currentText += e.delta; current.innerHTML = md(currentText); log.scrollTop = log.scrollHeight;
+      currentText += e.delta; current.innerHTML = md(currentText);
+      if (activity) showActivity('Writing a reply…'); else log.scrollTop = log.scrollHeight;
     } else if (e.type === 'assistant_end') {
+      endThinking();
       if (current && !currentText.trim()) current.remove();
       current = null;
     } else if (e.type === 'tool_start') {
       const d = document.createElement('details'); d.className = 'tool running';
-      d.innerHTML = '<summary>' + esc(summarize(e.name, e.args)) + '</summary><pre>' + esc(e.args || '') + '</pre>';
+      d.innerHTML = '<summary>' + esc(e.label || summarize(e.name, e.args)) + '</summary><pre>' + esc(e.args || '') + '</pre>';
       document.getElementById('empty')?.remove(); log.appendChild(d); tools[e.id] = d; log.scrollTop = log.scrollHeight;
+      keepActivityLast();
     } else if (e.type === 'tool_end') {
       const d = tools[e.id]; if (!d) return;
       d.classList.remove('running');
@@ -421,13 +487,16 @@ function html(n: string) {
       d.querySelector('pre').textContent = e.result;
     } else if (e.type === 'error') {
       add('error', esc(e.message));
+      keepActivityLast();
     } else if (e.type === 'image') {
       const d = add('shot', '');
       const img = document.createElement('img');
       img.src = 'data:' + e.mimeType + ';base64,' + e.data;
       img.alt = 'Device screenshot';
       d.appendChild(img);
+      keepActivityLast();
     } else if (e.type === 'done') {
+      endThinking(); stopActivity();
       setRunning(false); current = null;
       if (e.outcome === 'stopped') add('error', 'Stopped.');
     }

@@ -29,6 +29,7 @@ export interface LlmConfig {
 export interface StreamResult {
   content: string;
   toolCalls: ToolCall[];
+  reasoning?: string;
 }
 
 export async function streamChat(
@@ -38,6 +39,7 @@ export async function streamChat(
   onText: (delta: string) => void,
   signal: AbortSignal,
   temperature = 0.2,
+  hooks: StreamHooks = {},
 ): Promise<StreamResult> {
   const res = await fetch(`${cfg.baseUrl.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
@@ -50,11 +52,24 @@ export async function streamChat(
     throw new Error(`Model server returned ${res.status}: ${await res.text().catch(() => '')}`);
   }
 
-  let content = '';
+  let raw = ''; // everything the model wrote, including any <think> blocks
+  let content = ''; // what the user sees as the reply
+  let reasoning = '';
+  let shownText = 0;
+  let shownThink = 0;
   const calls = new Map<number, ToolCall>();
   const decoder = new TextDecoder();
   const reader = res.body.getReader();
   let buffer = '';
+  // Route new text to the reply or to the visible "Thinking" block.
+  const flushText = (final: boolean) => {
+    const split = splitThinking(raw, final);
+    content = split.visible;
+    if (split.visible.length > shownText) onText(split.visible.slice(shownText));
+    shownText = split.visible.length;
+    if (split.thinking.length > shownThink) hooks.reasoning?.(split.thinking.slice(shownThink));
+    shownThink = split.thinking.length;
+  };
 
   for (;;) {
     const { done, value } = await reader.read();
@@ -75,33 +90,82 @@ export async function streamChat(
       }
       const delta = chunk.choices?.[0]?.delta;
       if (!delta) continue;
+      // Reasoning models send their thinking separately (reasoning_content) or inline in <think>.
+      const thought = delta.reasoning_content ?? delta.reasoning;
+      if (typeof thought === 'string' && thought) {
+        reasoning += thought;
+        hooks.reasoning?.(thought);
+      }
       if (delta.content) {
-        content += delta.content;
-        onText(delta.content);
+        raw += delta.content;
+        flushText(false);
       }
       for (const tc of delta.tool_calls ?? []) {
         const idx = tc.index ?? calls.size;
-        const existing = calls.get(idx);
-        if (!existing) {
-          calls.set(idx, {
+        let call = calls.get(idx);
+        if (!call) {
+          call = {
             id: tc.id ?? `call_${idx}_${Date.now()}`,
             type: 'function',
             function: { name: tc.function?.name ?? '', arguments: tc.function?.arguments ?? '' },
-          });
+          };
+          calls.set(idx, call);
         } else {
-          if (tc.function?.name) existing.function.name += tc.function.name;
-          if (tc.function?.arguments) existing.function.arguments += tc.function.arguments;
+          if (tc.function?.name) call.function.name += tc.function.name;
+          if (tc.function?.arguments) call.function.arguments += tc.function.arguments;
         }
+        // Writing a call (e.g. a whole file) can take a while: say what's coming.
+        if (call.function.name) hooks.toolCall?.(call.function.name, call.function.arguments);
       }
     }
   }
+  flushText(true);
+  const thinking = (reasoning + splitThinking(raw, true).thinking).trim();
 
-  if (calls.size > 0) return { content, toolCalls: [...calls.values()] };
+  if (calls.size > 0) return { content, toolCalls: [...calls.values()], reasoning: thinking };
   const fallback = parseFallbackToolCalls(content, tools.map((t) => t.function.name));
-  if (!fallback.call) return { content, toolCalls: [] };
+  if (!fallback.call) return { content, toolCalls: [], reasoning: thinking };
   // Keep only what came before the call: the rest is a plan that depends on
   // results the model hasn't seen yet (often with invented results).
-  return { content: fallback.before, toolCalls: [fallback.call] };
+  return { content: fallback.before, toolCalls: [fallback.call], reasoning: thinking };
+}
+
+export interface StreamHooks {
+  // A tool call is being written: its name, and its arguments so far.
+  toolCall?: (name: string, partialArgs: string) => void;
+  // The model's visible reasoning, as it streams.
+  reasoning?: (delta: string) => void;
+}
+
+// Separates <think>...</think> reasoning from the reply. While streaming
+// (final=false), a trailing partial "<think" tag is held back so it never
+// flashes up in the reply.
+export function splitThinking(raw: string, final: boolean): { visible: string; thinking: string } {
+  let visible = '';
+  let thinking = '';
+  let i = 0;
+  for (;;) {
+    const open = raw.indexOf('<think>', i);
+    if (open < 0) {
+      visible += raw.slice(i);
+      break;
+    }
+    visible += raw.slice(i, open);
+    const close = raw.indexOf('</think>', open + 7);
+    if (close < 0) {
+      thinking += raw.slice(open + 7);
+      i = raw.length;
+      break;
+    }
+    thinking += raw.slice(open + 7, close);
+    i = close + 8;
+  }
+  if (!final) {
+    const tail = visible.match(/<\/?t?h?i?n?k?$/);
+    if (tail && '<think>'.startsWith(tail[0])) visible = visible.slice(0, -tail[0].length);
+  }
+  // A reply usually starts with blank lines after a </think>.
+  return { visible: visible.replace(/^\s+/, ''), thinking };
 }
 
 // Small open models sometimes write tool calls as text instead of using the
@@ -178,9 +242,17 @@ export async function continueAsToolCall(
   tools: ToolSpec[],
   replySoFar: string,
   signal: AbortSignal,
+  onToolCall?: (name: string, partialArgs: string) => void,
 ): Promise<ToolCall | undefined> {
   const prefilled: ChatMessage[] = [...messages, { role: 'assistant', content: replySoFar.trim() + PREFILL }];
-  const r = await streamChat(cfg, prefilled, tools, () => {}, signal);
+  // The call arrives as text ('read_file", "arguments": {"path": ...'): report it as it streams.
+  let written = '';
+  const onText = (d: string) => {
+    written += d;
+    const m = written.match(/^([A-Za-z0-9_]+)"\s*,\s*"arguments"\s*:\s*([\s\S]*)$/);
+    if (m) onToolCall?.(m[1], m[2]);
+  };
+  const r = await streamChat(cfg, prefilled, tools, onText, signal);
   const text = '{"name": "' + r.content;
   return parseFallbackToolCalls(text, tools.map((t) => t.function.name)).call;
 }

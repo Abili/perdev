@@ -26,6 +26,27 @@ import { LoopGuard } from '../loopGuard';
 import { resolveShell } from '../shell';
 import { DocsLookup, extractSection, htmlToText, pickDocSet, rank } from '../docs';
 import { McpClient, resultText } from '../mcp';
+import { describeActivity, partialField } from '../activity';
+import { splitThinking } from '../llm';
+
+test('activity lines describe tool calls, even while their arguments are still streaming', () => {
+  assert.equal(describeActivity('write_file', '{"path": "src/app.ts", "content": "imp'), 'Writing src/app.ts');
+  assert.equal(describeActivity('write_file', '{"pa'), 'Writing a file');
+  assert.equal(describeActivity('run_command', '{"command":"python -m unittest -v"}'), 'Running python -m unittest -v');
+  assert.equal(describeActivity('lookup_docs', '{"docs":"python","query":"str.join"}'), 'Looking up “str.join” in the python docs');
+  assert.equal(describeActivity('tap', '{"text":"Add note"}'), 'Tapping “Add note”');
+  assert.equal(describeActivity('mystery_tool', '{}'), 'Using mystery tool');
+  assert.equal(partialField('{"path": "a\\\\b.ts"', 'path'), 'a\\b.ts');
+});
+
+test('<think> reasoning is separated from the reply, even mid-stream', () => {
+  assert.deepEqual(splitThinking('<think>check the tests first</think>\n\nThe tests pass.', true), { visible: 'The tests pass.', thinking: 'check the tests first' });
+  assert.deepEqual(splitThinking('<think>still thinking', false), { visible: '', thinking: 'still thinking' });
+  // A partial tag at the end is held back while streaming, never shown as reply text.
+  assert.deepEqual(splitThinking('<thi', false), { visible: '', thinking: '' });
+  assert.deepEqual(splitThinking('Hello <', false), { visible: 'Hello ', thinking: '' });
+  assert.deepEqual(splitThinking('No thinking here.', false), { visible: 'No thinking here.', thinking: '' });
+});
 import { checkAvailability, packageName, PROJECT_TYPES, writeStarterFiles } from '../projectTypes';
 
 test('project types: every card has a setup, names are made safe, iOS needs a Mac', async () => {
