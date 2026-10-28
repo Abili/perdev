@@ -25,6 +25,63 @@ import { formatCommandResult, planEdit, stripLineNumbers } from '../toolSpecs';
 import { LoopGuard } from '../loopGuard';
 import { resolveShell } from '../shell';
 import { DocsLookup, extractSection, htmlToText, pickDocSet, rank } from '../docs';
+import { McpClient, resultText } from '../mcp';
+import { isAndroidProject, McpManager } from '../mcpManager';
+
+// A minimal MCP server over stdio, standing in for DroidLoop.
+const FAKE_MCP = `
+const rl = require('readline').createInterface({ input: process.stdin });
+const send = (m) => process.stdout.write(JSON.stringify(m) + '\\n');
+const tools = ['list_devices', 'tap', 'ui_tree', 'screenshot', 'run_flow', 'launch'].map((name) => ({ name, description: name + ' tool', inputSchema: { type: 'object', properties: {} } }));
+rl.on('line', (line) => {
+  const m = JSON.parse(line);
+  if (m.method === 'initialize') send({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fake' } } });
+  else if (m.method === 'tools/list') send({ jsonrpc: '2.0', id: m.id, result: { tools } });
+  else if (m.method === 'tools/call') {
+    const n = m.params.name;
+    if (n === 'screenshot') send({ jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: 'scale 0.5' }, { type: 'image', data: 'AAAA', mimeType: 'image/jpeg' }] } });
+    else if (n === 'tap') send({ jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: 'No element with id 99' }], isError: true } });
+    else send({ jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: n + ' ok ' + JSON.stringify(m.params.arguments) }] } });
+  }
+});`;
+const fakeServer = () => ({ command: process.execPath, args: ['-e', FAKE_MCP] });
+
+test('MCP client: connects, lists tools, calls them, reports images and errors', async () => {
+  const c = new McpClient('fake', fakeServer());
+  await c.start();
+  assert.deepEqual(c.tools.map((t) => t.name), ['list_devices', 'tap', 'ui_tree', 'screenshot', 'run_flow', 'launch']);
+  assert.equal(resultText(await c.callTool('list_devices', { all: true })), 'list_devices ok {"all":true}');
+  const shot = await c.callTool('screenshot', {});
+  assert.equal(shot.images.length, 1);
+  assert.match(resultText(shot), /scale 0\.5\n\[1 image\(s\) shown to the user[\s\S]*use ui_tree/);
+  assert.match(resultText(await c.callTool('tap', { elementId: 99 })), /^Error: No element with id 99/);
+  c.stop();
+});
+
+test('MCP manager: Android-only servers, tool subsets, read-only tools skip approval', async () => {
+  const dir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'perdev-mcp-'));
+  const m = new McpManager(() => {});
+  const servers = { droidloop: { ...fakeServer(), when: 'android' as const } };
+  assert.equal(await m.toolsFor(dir, servers, 'explain calc.py'), undefined); // not an Android project
+  assert.equal(isAndroidProject(dir), false);
+  const viaWords = await m.toolsFor(dir, servers, 'run it on the emulator');
+  assert.ok(viaWords);
+  fsSync.writeFileSync(path.join(dir, 'gradlew'), '');
+  const extra = (await m.toolsFor(dir, servers, 'explain MainActivity'))!;
+  // DroidLoop's default subset leaves out run_flow.
+  assert.deepEqual(extra.specs.map((s) => s.function.name).sort(), ['launch', 'list_devices', 'screenshot', 'tap', 'ui_tree']);
+  assert.equal(extra.needsApproval('ui_tree'), false);
+  assert.equal(extra.needsApproval('tap'), true);
+  assert.match(extra.notes, /call ui_tree/);
+  assert.equal(resultText(await extra.call('ui_tree', '{}')), 'ui_tree ok {}');
+  // After an action that changes the screen, the new screen is attached.
+  assert.equal(resultText(await extra.call('launch', '{"packageName":"a.b"}')), 'launch ok {"packageName":"a.b"}\n\nScreen now (ui_tree):\nui_tree ok {}');
+  // A failed action gets no screen attached.
+  assert.equal(resultText(await extra.call('tap', '{"elementId":99}')), 'Error: No element with id 99');
+  m.dispose();
+  // The stopped server may still hold the folder for a moment on Windows.
+  fsSync.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+});
 
 const CATALOG = [
   { name: 'Python', slug: 'python~3.12', release: '3.12.9' },
@@ -104,6 +161,14 @@ test('repeated identical tool calls are blocked, then the run is stopped', () =>
   assert.equal(g.check('run_command', '{"command":"python calc.py"}').action, 'block');
   assert.equal(g.check('run_command', '{"command":"python calc.py"}').action, 'stop'); // fourth identical call
   assert.equal(g.check('run_command', '{"command":"python -m unittest"}').action, 'run');
+});
+
+test('after a device action, repeating an earlier call runs it again', () => {
+  const g = new LoopGuard();
+  g.record('type_text', '{"text":"Milk"}', 'Error: no focused text field');
+  assert.equal(g.check('type_text', '{"text":"Milk"}').action, 'block');
+  g.forgetAll(); // e.g. after tapping the field
+  assert.equal(g.check('type_text', '{"text":"Milk"}').action, 'run');
 });
 
 test('after an edit, reading the file again is allowed', () => {

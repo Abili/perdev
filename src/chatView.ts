@@ -8,6 +8,7 @@ import { ChatSession, newSessionId, SessionStore, titleFrom } from './sessions';
 import { resolveShell, ShellPreference } from './shell';
 import { workspaceOverview } from './prompt';
 import { DocsLookup } from './docs';
+import { McpManager } from './mcpManager';
 import * as path from 'path';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
@@ -19,6 +20,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   constructor(
     private readonly logger: TrainingLogger,
     private readonly store: SessionStore,
+    private readonly mcp: McpManager,
   ) {}
 
   resolveWebviewView(view: vscode.WebviewView) {
@@ -110,6 +112,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // First message of a chat: tell the model what's in the workspace.
     const firstMessage = !agent.messages.some((m) => m.role === 'user');
     const overview = firstMessage ? workspaceOverview(await listWorkspace()) : '';
+    // Tools from MCP servers in settings (e.g. DroidLoop), for workspaces they apply to.
+    const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
+    const extra = await this.mcp.toolsFor(root, c.get('mcpServers', {}), text);
     const outcome = await agent.run(
       withEditorContext(text) + overview,
       cfg,
@@ -119,6 +124,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         approveCommands: c.get<boolean>('agent.approveCommands', true),
         approveEdits: c.get<boolean>('agent.approveEdits', false),
         docs: c.get<boolean>('docs.enabled', true) ? this.docs() : undefined,
+        extra,
+        confirm: async (title, detail) =>
+          (await vscode.window.showWarningMessage(title, { modal: true, detail: detail.slice(0, 1500) }, 'Allow')) === 'Allow',
       },
       (event: AgentEvent) => {
         // Save after every step so a long or stuck run is never lost.
@@ -265,7 +273,7 @@ function html(n: string) {
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${n}';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'nonce-${n}';">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
   body { padding: 0; margin: 0; font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); color: var(--vscode-foreground); display: flex; flex-direction: column; height: 100vh; }
@@ -281,6 +289,7 @@ function html(n: string) {
   details.tool.running summary::after { content: ' …'; }
   details.tool pre { max-height: 240px; overflow: auto; white-space: pre-wrap; }
   .error { color: var(--vscode-errorForeground); }
+  .shot img { max-width: 100%; max-height: 420px; border: 1px solid var(--vscode-panel-border); border-radius: 6px; }
   .empty { color: var(--vscode-descriptionForeground); text-align: center; margin-top: 30%; padding: 0 16px; }
   .branch { border: 1px solid var(--vscode-panel-border); border-radius: 6px; padding: 8px; margin: 0 0 12px; font-size: 0.92em; }
   .branch .head { color: var(--vscode-descriptionForeground); }
@@ -406,6 +415,12 @@ function html(n: string) {
       d.querySelector('pre').textContent = e.result;
     } else if (e.type === 'error') {
       add('error', esc(e.message));
+    } else if (e.type === 'image') {
+      const d = add('shot', '');
+      const img = document.createElement('img');
+      img.src = 'data:' + e.mimeType + ';base64,' + e.data;
+      img.alt = 'Device screenshot';
+      d.appendChild(img);
     } else if (e.type === 'done') {
       setRunning(false); current = null;
       if (e.outcome === 'stopped') add('error', 'Stopped.');

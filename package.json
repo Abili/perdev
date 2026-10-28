@@ -150,6 +150,25 @@
           "default": "auto",
           "description": "Shell for the agent's commands. auto: Git Bash on Windows if installed (models know bash best), otherwise PowerShell."
         },
+        "perdev.mcpServers": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "MCP servers whose tools the agent can use, e.g. DroidLoop for Android:\n```json\n\"droidloop\": { \"command\": \"node\", \"args\": [\"E:/codingprojects/AndroidDevAI/dist/index.js\"], \"when\": \"android\" }\n```\nOptions per server: `when` (`always` or `android`: only in Android projects or when you mention Android), `tools` (which tools to offer; fewer works better with small models), `approve` (ask before tools that change things; default true), `readOnlyTools` (never ask for these), `env`, `enabled`.",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "command": { "type": "string" },
+              "args": { "type": "array", "items": { "type": "string" } },
+              "env": { "type": "object" },
+              "when": { "type": "string", "enum": ["always", "android"] },
+              "tools": { "type": "array", "items": { "type": "string" } },
+              "readOnlyTools": { "type": "array", "items": { "type": "string" } },
+              "approve": { "type": "boolean" },
+              "enabled": { "type": "boolean" }
+            },
+            "required": ["command"]
+          }
+        },
         "perdev.docs.enabled": {
           "type": "boolean",
           "default": true,

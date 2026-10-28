@@ -3,11 +3,14 @@
 
 import { ChatMessage, continueAsToolCall, LlmConfig, streamChat } from './llm';
 import { TOOL_SPECS, runTool, ToolContext } from './tools';
+import { truncate } from './toolSpecs';
 import { conversationSize, trimContext } from './context';
 import { carryOverSection, HANDOFF_PROMPT, looksLikeAskingUserToAct, looksLikeUnfinishedPlan, systemPrompt } from './prompt';
 import { LoopGuard } from './loopGuard';
 import { resolveShell, Shell } from './shell';
 import { DocsLookup } from './docs';
+import { ExtraTools } from './mcpManager';
+import { resultText } from './mcp';
 
 export type AgentEvent =
   | { type: 'text'; delta: string }
@@ -15,14 +18,14 @@ export type AgentEvent =
   | { type: 'tool_start'; id: string; name: string; args: string }
   | { type: 'tool_end'; id: string; result: string }
   | { type: 'error'; message: string }
+  | { type: 'image'; data: string; mimeType: string } // e.g. a device screenshot, for the user
   | { type: 'step' } // a round of tool calls finished (the chat is saved)
   | { type: 'done'; outcome: 'done' | 'stopped' | 'error' | 'max_steps' };
-
-const TOOL_NAMES = TOOL_SPECS.map((t) => t.function.name);
 
 export class Agent {
   messages: ChatMessage[] = [];
   private abort?: AbortController;
+  private baseSystem = '';
 
   constructor(
     private readonly root: string,
@@ -38,7 +41,8 @@ export class Agent {
   // carry: handoff from a parent chat, built into the system prompt so it is never trimmed.
   reset(carry?: { parentTitle: string; summary: string }) {
     const extra = carry ? carryOverSection(carry.parentTitle, carry.summary) : '';
-    this.messages = [{ role: 'system', content: systemPrompt(this.root, { shell: this.shell.label }) + extra }];
+    this.baseSystem = systemPrompt(this.root, { shell: this.shell.label }) + extra;
+    this.messages = [{ role: 'system', content: this.baseSystem }];
   }
 
   // How full the conversation is, relative to the trimming budget (0..1+).
@@ -68,12 +72,30 @@ export class Agent {
   async run(
     userText: string,
     cfg: LlmConfig,
-    opts: { maxSteps: number; maxContextChars: number; approveCommands: boolean; approveEdits: boolean; docs?: DocsLookup },
+    opts: {
+      maxSteps: number;
+      maxContextChars: number;
+      approveCommands: boolean;
+      approveEdits: boolean;
+      docs?: DocsLookup;
+      // Tools from MCP servers (e.g. DroidLoop), and how to ask the user before using them.
+      extra?: ExtraTools;
+      confirm?: (title: string, detail: string) => Promise<boolean>;
+    },
     emit: (e: AgentEvent) => void,
   ): Promise<'done' | 'stopped' | 'error' | 'max_steps'> {
     this.abort = new AbortController();
     const signal = this.abort.signal;
     this.messages.push({ role: 'user', content: userText });
+    const extra = opts.extra;
+    const tools = extra ? [...TOOL_SPECS, ...extra.specs] : TOOL_SPECS;
+    const toolNames = tools.map((t) => t.function.name);
+    // Guidance for this request's extra tools rides in the system prompt (never trimmed).
+    if (this.messages[0]?.role === 'system' && this.baseSystem) {
+      this.messages[0].content = this.baseSystem + (extra?.notes ? `
+
+${extra.notes}` : '');
+    }
     const ctx: ToolContext = {
       root: this.root,
       approveCommands: opts.approveCommands,
@@ -91,7 +113,7 @@ export class Agent {
     try {
       for (let step = 0; step < opts.maxSteps; step++) {
         trimContext(this.messages, opts.maxContextChars);
-        let result = await streamChat(cfg, this.messages, TOOL_SPECS, (d) => emit({ type: 'text', delta: d }), signal, temperature);
+        let result = await streamChat(cfg, this.messages, tools, (d) => emit({ type: 'text', delta: d }), signal, temperature);
         emit({ type: 'assistant_end' });
         temperature = undefined;
 
@@ -102,7 +124,7 @@ export class Agent {
           // on Qwen2.5-Coder-7B, telling it to act afterwards doesn't work (it just
           // ends). What works is continuing its reply with the start of a tool call;
           // if that fails, drop the reply and re-ask a little less deterministically.
-          const asking = looksLikeAskingUserToAct(result.content, TOOL_NAMES);
+          const asking = looksLikeAskingUserToAct(result.content, toolNames);
           const midTaskStall = toolsUsed > 0 && (!result.content.trim() || looksLikeUnfinishedPlan(result.content));
           // At the first step only a short announcement counts ("I'll read its contents
           // first. Please wait..."): a real answer that mentions a next step is longer.
@@ -110,7 +132,7 @@ export class Agent {
           if (retries < 2 && (midTaskStall || asking || firstStepAnnouncement)) {
             retries++;
             const keep = asking ? '' : result.content;
-            const call = await continueAsToolCall(cfg, this.messages, TOOL_SPECS, keep, signal);
+            const call = await continueAsToolCall(cfg, this.messages, tools, keep, signal);
             if (!call) {
               temperature = 0.4;
               continue;
@@ -136,7 +158,12 @@ export class Agent {
           emit({ type: 'tool_start', id: call.id, name, args });
           const decision = guard.check(name, args);
           let output: string;
-          if (decision.action === 'run') {
+          if (decision.action === 'run' && extra?.has(name)) {
+            output = await this.runExtra(extra, name, args, opts.confirm, emit);
+            // A device action that worked (tap, type...) changes what later calls return.
+            if (!extra.isReadOnly(name) && !output.startsWith('Error:')) guard.forgetAll();
+            guard.record(name, args, output);
+          } else if (decision.action === 'run') {
             output = await runTool(name, args, ctx);
             guard.record(name, args, output);
             if ((name === 'write_file' || name === 'edit_file') && !output.startsWith('Error:')) guard.forgetReads();
@@ -170,6 +197,25 @@ export class Agent {
       emit({ type: 'done', outcome });
     }
     return outcome;
+  }
+
+  private async runExtra(
+    extra: ExtraTools,
+    name: string,
+    args: string,
+    confirm: ((title: string, detail: string) => Promise<boolean>) | undefined,
+    emit: (e: AgentEvent) => void,
+  ): Promise<string> {
+    if (extra.needsApproval(name) && confirm && !(await confirm(`PerDev wants to use ${name}`, args))) {
+      return 'Error: the user declined this action.';
+    }
+    try {
+      const r = await extra.call(name, args);
+      for (const img of r.images) emit({ type: 'image', data: img.data, mimeType: img.mimeType });
+      return truncate(resultText(r));
+    } catch (e: any) {
+      return `Error: ${e?.message ?? e}`;
+    }
   }
 }
 

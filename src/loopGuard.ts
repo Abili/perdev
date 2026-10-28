@@ -49,6 +49,12 @@ export class LoopGuard {
     if (!this.seen.has(k)) this.seen.set(k, { count: 1, result });
   }
 
+  // Something changed (a device action like tap): every earlier call may now give a
+  // different result, so none of them count as repeats any more.
+  forgetAll() {
+    this.seen.clear();
+  }
+
   // A change to the workspace can make an earlier read or command give a new result.
   forgetReads() {
     for (const k of [...this.seen.keys()]) {

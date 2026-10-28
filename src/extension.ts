@@ -5,6 +5,7 @@ import { AutocompleteProvider } from './autocomplete';
 import { TrainingLogger } from './logger';
 import { LocalServers } from './server';
 import { SessionStore } from './sessions';
+import { McpManager } from './mcpManager';
 
 export function activate(context: vscode.ExtensionContext) {
   const servers = new LocalServers();
@@ -12,7 +13,10 @@ export function activate(context: vscode.ExtensionContext) {
   servers.ensureRunning();
 
   const logger = new TrainingLogger(context);
-  const chat = new ChatViewProvider(logger, new SessionStore(() => logger.dir));
+  const toolsLog = vscode.window.createOutputChannel('PerDev Tools');
+  const mcp = new McpManager((line) => toolsLog.appendLine(line));
+  context.subscriptions.push(toolsLog, { dispose: () => mcp.dispose() });
+  const chat = new ChatViewProvider(logger, new SessionStore(() => logger.dir), mcp);
   const autocomplete = new AutocompleteProvider(logger);
 
   context.subscriptions.push(
