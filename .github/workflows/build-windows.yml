@@ -24,6 +24,9 @@ env:
   SHOULD_BUILD_REH: 'no'
   SHOULD_BUILD_REH_WEB: 'no'
   # The repo's .npmrc puts npm's cache on E: for local work; runners have no E:.
+  # PerDev is checked out into ./perdev beside ./vscodium (not around it): if
+  # VS Code's source sat inside PerDev's folder, TypeScript would also load
+  # PerDev's node_modules/@types/vscode and fail with duplicate identifiers.
   npm_config_cache: C:\npm-cache
 
 permissions:
@@ -45,6 +48,7 @@ jobs:
       - name: Check out PerDev
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          path: perdev
           persist-credentials: false
 
       - name: Check out VSCodium build scripts
@@ -66,16 +70,18 @@ jobs:
           python-version: '3.11'
 
       - name: Build the PerDev AI extension
+        working-directory: perdev
         run: |
           npm ci
           npm run compile
           node scripts/export-format.js
 
       - name: Apply PerDev branding
+        working-directory: perdev
         run: |
-          node scripts/brand-fork.js vscodium
+          node scripts/brand-fork.js ../vscodium
           python -m pip install --quiet pillow
-          python scripts/make_icons.py --inno vscodium/src/stable/resources/win32
+          python scripts/make_icons.py --inno ../vscodium/src/stable/resources/win32
 
       - name: Clone VS Code source
         working-directory: vscodium
@@ -120,6 +126,7 @@ jobs:
       - name: Check out PerDev
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          path: perdev
           persist-credentials: false
 
       - name: Check out VSCodium build scripts
@@ -141,12 +148,13 @@ jobs:
           python-version: '3.11'
 
       - name: Re-apply installer branding
+        working-directory: perdev
         run: |
           npm ci
           npm run compile
-          node scripts/brand-fork.js vscodium
+          node scripts/brand-fork.js ../vscodium
           python -m pip install --quiet pillow
-          python scripts/make_icons.py --inno vscodium/src/stable/resources/win32
+          python scripts/make_icons.py --inno ../vscodium/src/stable/resources/win32
 
       - name: Download compiled source
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
