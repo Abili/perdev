@@ -248,13 +248,17 @@ export async function continueAsToolCall(
   // Force a particular tool: e.g. write_file when the model pasted code instead of writing files.
   forceTool?: string,
 ): Promise<ToolCall | undefined> {
-  const start = forceTool ? `{"name": "${forceTool}", "arguments": {"path": "` : '{"name": "';
+  const start = !forceTool
+    ? '{"name": "'
+    : forceTool === 'write_file'
+      ? '{"name": "write_file", "arguments": {"path": "'
+      : `{"name": "${forceTool}", "arguments": {`;
   const prefilled: ChatMessage[] = [...messages, { role: 'assistant', content: replySoFar.trim() + '\n<tool_call>\n' + start }];
   // The call arrives as text ('read_file", "arguments": {"path": ...'): report it as it streams.
   let written = '';
   const onText = (d: string) => {
     written += d;
-    if (forceTool) return onToolCall?.(forceTool, '{"path": "' + written);
+    if (forceTool) return onToolCall?.(forceTool, start.slice(start.indexOf('"arguments"') + 13) + written);
     const m = written.match(/^([A-Za-z0-9_]+)"\s*,\s*"arguments"\s*:\s*([\s\S]*)$/);
     if (m) onToolCall?.(m[1], m[2]);
   };

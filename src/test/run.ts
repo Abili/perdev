@@ -465,3 +465,64 @@ test('cleanCompletion stops before repeating the suffix', () => {
   assert.equal(out, '  return a + b;');
   assert.equal(cleanCompletion('foo()  \n\n', ''), 'foo()');
 });
+
+import { ReplyFilter } from '../replyFilter';
+import { scaffoldAndroidIfNeeded, wantsAndroidApp } from '../androidTemplate';
+
+test('ReplyFilter: code in a work reply is cut, not shown', () => {
+  const f = new ReplyFilter(false);
+  let shown = '';
+  let cut = false;
+  for (const d of ['Here is the app:\n', '``', '`kotlin\nclass Main', 'Activity {}']) {
+    const u = f.push(d);
+    shown += u.show;
+    cut ||= u.cutForCode;
+  }
+  assert.equal(shown, 'Here is the app:\n');
+  assert.equal(cut, true);
+  assert.equal(f.flush(), '');
+});
+
+test('ReplyFilter: a question may show code; tool calls as text stay hidden', () => {
+  const q = new ReplyFilter(true);
+  const u = q.push('Use this:\n```js\nx()\n```\nDone.');
+  assert.equal(u.cutForCode, false);
+  assert.ok(u.show.includes('x()'));
+  const t = new ReplyFilter(false);
+  const a = t.push('Writing it now. {"name": "write_file", "arguments": {"path": "a.kt"');
+  assert.equal(a.show, 'Writing it now. ');
+  assert.equal(a.toolCall?.name, 'write_file');
+  // A held-back "`" that turned out to be plain text is released at the end.
+  const p = new ReplyFilter(false);
+  assert.equal(p.push('Use the `').show, 'Use the ');
+  assert.equal(p.flush(), '`');
+});
+
+test('Android: newest cached library version wins', () => {
+  const home = fsSync.mkdtempSync(path.join(os.tmpdir(), 'perdev-gradle-'));
+  const cache = path.join(home, 'caches', 'modules-2', 'files-2.1');
+  for (const v of ['2024.09.00', '2026.01.01']) fsSync.mkdirSync(path.join(cache, 'androidx.compose', 'compose-bom', v), { recursive: true });
+  assert.equal(chooseAndroidVersions({ GRADLE_USER_HOME: home }).versions.composeBom, '2026.01.01');
+  fsSync.rmSync(home, { recursive: true, force: true });
+});
+
+test('Android: an app request in an empty folder gets a Kotlin + Compose project', async () => {
+  assert.equal(wantsAndroidApp('build me an android sticker app'), true);
+  assert.equal(wantsAndroidApp('fix the login bug'), false);
+  const root = fsSync.mkdtempSync(path.join(os.tmpdir(), 'perdev-android-'));
+  // An existing wrapper: the test doesn't run Gradle.
+  fsSync.writeFileSync(path.join(root, 'gradlew.bat'), '');
+  fsSync.writeFileSync(path.join(root, 'gradlew'), '');
+  fsSync.mkdirSync(path.join(root, 'app', 'src', 'main', 'res', 'layout'), { recursive: true });
+  fsSync.writeFileSync(path.join(root, 'app', 'src', 'main', 'res', 'layout', 'activity_main.xml'), '<x/>');
+  fsSync.writeFileSync(path.join(root, 'app', 'src', 'main', 'AndroidManifest.xml'), 'mine');
+  const note = await scaffoldAndroidIfNeeded(root, 'build an android sticker app', () => {});
+  assert.ok(note?.includes('settings.gradle.kts'));
+  assert.ok(note?.includes('activity_main.xml'));
+  assert.ok(fsSync.readdirSync(path.join(root, 'app', 'src', 'main', 'java'), { recursive: true }).some((f) => String(f).endsWith('MainActivity.kt')));
+  // Never overwrites the user's files.
+  assert.equal(fsSync.readFileSync(path.join(root, 'app', 'src', 'main', 'AndroidManifest.xml'), 'utf8'), 'mine');
+  // Already a Gradle project: nothing to do.
+  assert.equal(await scaffoldAndroidIfNeeded(root, 'build an android app', () => {}), undefined);
+  fsSync.rmSync(root, { recursive: true, force: true });
+});

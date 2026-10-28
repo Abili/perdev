@@ -137,6 +137,7 @@ export class McpManager {
 
 // How to use the Android tools well (adapted from DroidLoop's README tips).
 const ANDROID_NOTES = `Android device tools (emulator or USB device):
+- Code: Kotlin + Jetpack Compose + Material 3 unless the user asks otherwise. Screens are @Composable functions set with setContent in MainActivity; no XML layouts or Java. Add libraries through gradle/libs.versions.toml.
 - Loop: build -> install -> launch -> ui_tree -> tap/type_text -> wait_for -> logcat (crashesOnly) to check, fix and repeat.
 - launch only starts the app; it does not tell you what is on the screen. To know what the screen shows, call ui_tree (text, with element ids and tap targets). You cannot see screenshots; they are only for the user.
 - When the user asks you to do something in a running app (open a screen, add an item, press a button), operate the app's UI with ui_tree, tap and type_text. Only change the code if they ask for a code change.

@@ -6,7 +6,8 @@ import { LlmConfig } from './llm';
 import { TrainingLogger } from './logger';
 import { ChatSession, newSessionId, SessionStore, titleFrom } from './sessions';
 import { resolveShell, ShellPreference } from './shell';
-import { workspaceOverview } from './prompt';
+import { looksLikeQuestion, workspaceOverview } from './prompt';
+import { scaffoldAndroidIfNeeded } from './androidTemplate';
 import { DocsLookup } from './docs';
 import { McpManager } from './mcpManager';
 import { stopBackground } from './tools';
@@ -131,12 +132,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const { c, cfg, maxContextChars } = this.settings();
 
     this.post({ type: 'user', text });
-    // First message of a chat: tell the model what's in the workspace.
-    const firstMessage = !agent.messages.some((m) => m.role === 'user');
-    const overview = firstMessage ? workspaceOverview(await listWorkspace()) : '';
-    // Tools from MCP servers in settings (e.g. DroidLoop), for workspaces they apply to.
     const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
     const emitStatus = (t: string) => this.post({ type: 'event', event: { type: 'status', text: t } });
+    // Asked for an Android app where there's no Gradle project: set up a real one first.
+    const scaffold = looksLikeQuestion(text) ? undefined : await scaffoldAndroidIfNeeded(root, text, emitStatus).catch((e) => `Setting up the Android project failed: ${e?.message ?? e}`);
+    // First message of a chat (or a new project): tell the model what's in the workspace.
+    const firstMessage = !agent.messages.some((m) => m.role === 'user');
+    const overview = (firstMessage || scaffold ? workspaceOverview(await listWorkspace()) : '') + (scaffold ? `\n\n${scaffold}` : '');
+    // Tools from MCP servers in settings (e.g. DroidLoop), for workspaces they apply to.
     await waitForModel(cfg.baseUrl, emitStatus, agent);
     const servers = c.get<Record<string, unknown>>('mcpServers', {});
     if (Object.keys(servers).length) emitStatus('Getting tools ready…');
@@ -339,6 +342,8 @@ function html(n: string) {
   details.tool.running summary::after { content: ' …'; }
   details.tool pre { max-height: 240px; overflow: auto; white-space: pre-wrap; }
   .error { color: var(--vscode-errorForeground); }
+  .unverified { margin: 0 0 12px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--vscode-editorWarning-foreground, #cca700);
+    color: var(--vscode-editorWarning-foreground, #cca700); }
   .plan { position: sticky; top: 0; z-index: 2; margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--vscode-panel-border); border-radius: 10px;
     background: var(--vscode-sideBar-background, var(--vscode-editor-background)); box-shadow: 0 6px 16px -12px rgba(0,0,0,.6); }
   .plan ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
@@ -453,6 +458,7 @@ function html(n: string) {
   }
   // Live task checklist, pinned at the top of the chat.
   let planEl = null;
+  let unverified = false;
   function planState(s) { s = String(s || ''); return /done|complete/i.test(s) ? 'done' : /progress|active|doing|current|running/i.test(s) ? 'in_progress' : 'pending'; }
   function renderPlan(steps) {
     if (!Array.isArray(steps) || !steps.length) return;
@@ -563,6 +569,10 @@ function html(n: string) {
     } else if (e.type === 'error') {
       add('error', esc(e.message));
       keepActivityLast();
+    } else if (e.type === 'unverified') {
+      unverified = true;
+      add('unverified', '<strong>⚠ Not verified.</strong> Files were changed, but nothing was built or tested successfully.<br>' + esc(e.reason));
+      keepActivityLast();
     } else if (e.type === 'image') {
       const d = add('shot', '');
       const img = document.createElement('img');
@@ -571,7 +581,9 @@ function html(n: string) {
       d.appendChild(img);
       keepActivityLast();
     } else if (e.type === 'done') {
-      settlePlan(e.outcome === 'done');
+      // An untested result doesn't tick the plan's open step.
+      settlePlan(e.outcome === 'done' && !unverified);
+      unverified = false;
       endThinking(); stopActivity();
       setRunning(false); current = null;
       if (e.outcome === 'stopped') add('error', 'Stopped.');

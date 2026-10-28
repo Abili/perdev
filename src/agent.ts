@@ -1,7 +1,10 @@
 // The agent loop: ask the model, run any tools it calls, feed results back,
 // repeat until it answers without tools.
 
-import { ChatMessage, continueAsToolCall, LlmConfig, StreamHooks, streamChat } from './llm';
+import { ChatMessage, continueAsToolCall, LlmConfig, StreamHooks, StreamResult, streamChat } from './llm';
+import { ReplyFilter } from './replyFilter';
+import * as fs from 'fs';
+import * as path from 'path';
 import { describeActivity } from './activity';
 import { TOOL_SPECS, runTool, ToolContext } from './tools';
 import { truncate } from './toolSpecs';
@@ -28,6 +31,7 @@ export type AgentEvent =
   | { type: 'tool_end'; id: string; result: string }
   | { type: 'error'; message: string }
   | { type: 'status'; text: string } // what the agent is doing right now
+  | { type: 'unverified'; reason: string } // finished, but nothing was successfully built/tested
   | { type: 'thinking'; delta: string } // the model's visible reasoning, if it shows any
   | { type: 'image'; data: string; mimeType: string } // e.g. a device screenshot, for the user
   | { type: 'step' } // a round of tool calls finished (the chat is saved)
@@ -123,6 +127,11 @@ ${extra.notes}` : '');
     let retries = 0;
     let temperature: number | undefined;
     const guard = new LoopGuard();
+    // Verification gate: changed files must be built/tested successfully before "done".
+    let changedFiles = 0;
+    let verified = false;
+    let verifyTries = 0;
+    let lastFailure = '';
     try {
       // Say what's happening at every moment, so the chat never sits silent.
       let lastStatus = '';
@@ -136,7 +145,29 @@ ${extra.notes}` : '');
       for (let step = 0; step < opts.maxSteps; step++) {
         trimContext(this.messages, opts.maxContextChars);
         status(toolsUsed === 0 ? 'Thinking…' : 'Thinking about the results…');
-        let result = await streamChat(cfg, this.messages, tools, (d) => emit({ type: 'text', delta: d }), signal, temperature, hooks);
+        // Code goes to files, not the chat: a code block ends the reply early (see ReplyFilter).
+        const filter = new ReplyFilter(isQuestion);
+        const cutCtl = new AbortController();
+        const onText = (d: string) => {
+          const u = filter.push(d);
+          if (u.show) emit({ type: 'text', delta: u.show });
+          if (u.toolCall) status(describeActivity(u.toolCall.name, u.toolCall.partialArgs));
+          if (u.cutForCode && !cutCtl.signal.aborted) {
+            status('Writing the code to files…');
+            cutCtl.abort();
+          }
+        };
+        let result: StreamResult;
+        let codeCut = false;
+        try {
+          result = await streamChat(cfg, this.messages, tools, onText, AbortSignal.any([signal, cutCtl.signal]), temperature, hooks);
+        } catch (e: any) {
+          if (signal.aborted || !cutCtl.signal.aborted) throw e;
+          codeCut = true;
+          result = { content: filter.full, toolCalls: [] };
+        }
+        const rest = filter.flush();
+        if (rest) emit({ type: 'text', delta: rest });
         emit({ type: 'assistant_end' });
         temperature = undefined;
 
@@ -154,8 +185,23 @@ ${extra.notes}` : '');
           const firstStepAnnouncement = toolsUsed === 0 && result.content.trim().length < 400 && looksLikeUnfinishedPlan(result.content);
           // Asked to build or change something, it pasted code for the user to copy:
           // make it write that code into the actual files instead.
-          const codeDump = !isQuestion && looksLikeCodeForUser(result.content);
-          if (retries < 2 && (midTaskStall || asking || firstStepAnnouncement || codeDump)) {
+          const codeDump = !isQuestion && (codeCut || looksLikeCodeForUser(result.content));
+          // About to finish after changing files, without a successful build/test:
+          // make it test first (it claimed "built and tested" when every build had failed).
+          const unverifiedFinish = !isQuestion && changedFiles > 0 && !verified && verifyTries < 1 && !midTaskStall && !asking && !codeDump;
+          if (unverifiedFinish) {
+            verifyTries++;
+            status('Testing what was built…');
+            const tool = verificationTool(this.root, extra);
+            const call = await continueAsToolCall(cfg, this.messages, tools, '', signal, hooks.toolCall, tool);
+            if (call) {
+              // Its claim of success isn't kept: the test result decides.
+              result = { content: '', toolCalls: [call] };
+            }
+          }
+          if (result.toolCalls.length) {
+            // a verification step was added above
+          } else if (retries < 2 && (midTaskStall || asking || firstStepAnnouncement || codeDump)) {
             retries++;
             status(codeDump ? 'Creating the files…' : 'Planning the next step…');
             const keep = asking ? '' : codeDump ? introBeforeCode(result.content) : result.content;
@@ -169,6 +215,9 @@ ${extra.notes}` : '');
           } else {
             this.messages.push({ role: 'assistant', content: result.content || null });
             outcome = 'done';
+            if (!isQuestion && changedFiles > 0 && !verified) {
+              emit({ type: 'unverified', reason: lastFailure || 'Nothing was built or tested after the changes.' });
+            }
             break;
           }
         }
@@ -206,6 +255,21 @@ ${extra.notes}` : '');
           }
           emit({ type: 'tool_end', id: call.id, result: output });
           this.messages.push({ role: 'tool', tool_call_id: call.id, name, content: output });
+          // Track what changed and whether it was then built/tested successfully.
+          const failed = output.startsWith('Error:');
+          if ((name === 'write_file' || name === 'edit_file') && !failed) {
+            changedFiles++;
+            verified = false;
+          }
+          if (VERIFYING_TOOLS.has(name)) {
+            const ok =
+              !failed &&
+              !/BUILD FAILED/.test(output) &&
+              !(name === 'run_command' && !/^exit code: 0\b/.test(output)) &&
+              !(name === 'open_in_browser' && /Console errors:/.test(output));
+            if (ok) verified = true;
+            else lastFailure = `${describeActivity(name, args)}: ${firstLine(output.replace(/^Error:\s*/, '')).slice(0, 200)}`;
+          }
         }
         emit({ type: 'step' });
         if (signal.aborted) throw new DOMException('Stopped', 'AbortError');
@@ -250,6 +314,20 @@ ${extra.notes}` : '');
       return `Error: ${e?.message ?? e}`;
     }
   }
+}
+
+function firstLine(s: string): string {
+  return s.split('\n')[0];
+}
+
+// Tools whose success counts as having built or tested the work.
+const VERIFYING_TOOLS = new Set(['run_command', 'open_in_browser', 'build', 'install', 'launch']);
+
+// The most fitting check for this project: build an Android app, open a web page, or run a command.
+function verificationTool(root: string, extra?: ExtraTools): string {
+  if (extra?.has('build') && fs.existsSync(path.join(root, 'settings.gradle.kts'))) return 'build';
+  if (fs.existsSync(path.join(root, 'index.html'))) return 'open_in_browser';
+  return 'run_command';
 }
 
 // The explanation before the first code block, kept short: the pasted code
