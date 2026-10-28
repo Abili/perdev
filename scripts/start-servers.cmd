@@ -1,8 +1,8 @@
 @echo off
 rem Starts PerDev's model servers by hand. The extension does this automatically
 rem (perdev.server.autoStart); use this for testing outside VS Code.
-set LLAMA=E:\Tools\llamacpp\llama-server.exe
-set MODELS=E:\Tools\models
+set LLAMA=D:\PerDev-AI\llamacpp\llama-server.exe
+set MODELS=D:\PerDev-AI\models
 set DEVICE=Vulkan1
 
 start "PerDev chat (8780)" "%LLAMA%" -m "%MODELS%\Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf" --host 127.0.0.1 --port 8780 --jinja -c 16384 --alias perdev-coder -ngl 99 --device %DEVICE%

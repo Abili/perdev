@@ -94,12 +94,12 @@
         },
         "perdev.server.llamaServerPath": {
           "type": "string",
-          "default": "E:\\Tools\\llamacpp\\llama-server.exe",
+          "default": "D:\\PerDev-AI\\llamacpp\\llama-server.exe",
           "description": "Path to llama-server.exe."
         },
         "perdev.server.chatModelPath": {
           "type": "string",
-          "default": "E:\\Tools\\models\\Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf",
+          "default": "D:\\PerDev-AI\\models\\Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf",
           "description": "GGUF model file for chat and the agent. Point this at your own fine-tuned model later."
         },
         "perdev.server.chatLoraPath": {
@@ -109,7 +109,7 @@
         },
         "perdev.server.autocompleteModelPath": {
           "type": "string",
-          "default": "E:\\Tools\\models\\Qwen2.5-Coder-1.5B.Q4_K_M.gguf",
+          "default": "D:\\PerDev-AI\\models\\Qwen2.5-Coder-1.5B.Q4_K_M.gguf",
           "description": "GGUF base model file for autocomplete."
         },
         "perdev.server.chatContext": {

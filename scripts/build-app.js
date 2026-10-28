@@ -4,7 +4,8 @@
 //   - runs in portable mode: all settings, chats and extensions stay in <out>\data
 //
 // Usage: npm run compile && node scripts/build-app.js [VSCodium.zip] [outDir]
-// Defaults: newest E:\Tools\downloads\VSCodium-win32-x64-*.zip -> E:\Tools\PerDev
+// Defaults: newest E:\Tools\downloads\VSCodium-win32-x64-*.zip -> D:\PerDev
+// (D: is the SSD; from the USB hard disk E: the app took minutes to start).
 // Rebuilding keeps <outDir>\data (your settings and chats).
 
 const fs = require('fs');
@@ -17,7 +18,7 @@ const ROOT = path.resolve(__dirname, '..');
 const RCEDIT = 'E:\\Tools\\rcedit\\rcedit-x64.exe';
 
 const zip = process.argv[2] || newest('E:\\Tools\\downloads', /^VSCodium-win32-x64-.*\.zip$/);
-const outDir = path.resolve(process.argv[3] || 'E:\\Tools\\PerDev');
+const outDir = path.resolve(process.argv[3] || 'D:\\PerDev');
 if (!zip || !fs.existsSync(zip)) fail(`VSCodium zip not found (${zip}). Download it first (see README).`);
 if (!fs.existsSync(path.join(ROOT, 'out', 'extension.js'))) fail('Run "npm run compile" first.');
 

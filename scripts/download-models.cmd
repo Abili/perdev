@@ -1,10 +1,10 @@
 @echo off
-rem Downloads PerDev's free models (GGUF, Apache-2.0) to E:\Tools\models.
+rem Downloads PerDev's free models (GGUF, Apache-2.0) to D:\PerDev-AI\models.
 rem Each file downloads to <name>.part and is renamed only when complete, so
 rem PerDev never tries to load a half-downloaded model. Resumes after dropped
 rem connections; safe to re-run.
 setlocal
-set DIR=E:\Tools\models
+set DIR=D:\PerDev-AI\models
 if not exist "%DIR%" mkdir "%DIR%"
 
 call :get Qwen2.5-Coder-1.5B.Q4_K_M.gguf https://huggingface.co/QuantFactory/Qwen2.5-Coder-1.5B-GGUF/resolve/main/Qwen2.5-Coder-1.5B.Q4_K_M.gguf

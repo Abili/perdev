@@ -13,14 +13,16 @@ A free, local-first AI code editor that runs on **your own model**. PerDev is it
 There are two ways to get the app:
 
 - **Built from source in the cloud (the real fork):** [.github/workflows/build-windows.yml](.github/workflows/build-windows.yml) compiles VS Code from source on GitHub's free Windows runners with VSCodium's build scripts, PerDev's branding ([scripts/brand-fork.js](scripts/brand-fork.js)) and the built-in AI. Run it from the repo's *Actions* tab and download the installer from the run's artifacts.
-- **Quick local build:** [scripts/build-app.js](scripts/build-app.js) turns a VSCodium release zip into `E:\Tools\PerDev\PerDev.exe` (rebranded, updater removed, AI built in, portable: all data stays in `E:\Tools\PerDev\data`). Run `npm run app` (close PerDev first).
+- **Quick local build:** [scripts/build-app.js](scripts/build-app.js) turns a VSCodium release zip into `D:\PerDev\PerDev.exe` (rebranded, updater removed, AI built in, portable: all data stays in `D:\PerDev\data`). Run `npm run app` (close PerDev first).
+
+> **Keep PerDev and its models on an SSD.** From the USB hard disk (E:) the editor took minutes to start and the AI never finished loading; from the NVMe SSD (D:) it starts in seconds.
 
 Both use the same branding code ([scripts/branding.js](scripts/branding.js)).
 
 ## Local AI setup (all on E:)
 
-1. **llama.cpp** (Vulkan build, runs on the RTX 3070) is at `E:\Tools\llamacpp`. It was copied from Android Studio's bundled copy, so nothing extra had to be downloaded.
-2. **Models** go in `E:\Tools\models`. Run `scripts\download-models.cmd`; it resumes if the connection drops and only names a file when it's complete.
+1. **llama.cpp** (Vulkan build, runs on the RTX 3070) is at `D:\PerDev-AI\llamacpp`. It was copied from Android Studio's bundled copy, so nothing extra had to be downloaded.
+2. **Models** go in `D:\PerDev-AI\models`. Run `scripts\download-models.cmd`; it resumes if the connection drops and only names a file when it's complete.
    - `Qwen2.5-Coder-1.5B.Q4_K_M.gguf` (0.94 GB): autocomplete
    - `Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf` (4.4 GB): chat and agent
 3. Open PerDev. It starts both model servers itself on ports 8780/8781 (see the *PerDev Servers* output). The first time you open a folder, choose **Trust**; the agent needs it to run commands.
@@ -69,7 +71,7 @@ npm test         # unit tests, no VS Code needed
 - **Data:** [SWE-smith trajectories](https://huggingface.co/datasets/SWE-bench/SWE-smith-trajectories) (MIT). These are thousands of real bug-fix sessions, each verified by the project's tests. [training/build_dataset.py](training/build_dataset.py) rewrites them into PerDev's exact tools, system prompt and output format, so the model learns *this* agent's interface. Your own PerDev chats (`chat.jsonl` from `scripts/export-training-data.js`) can be added and are weighted 3×.
 - **Method:** LoRA on the 4-bit model with Unsloth. Only the assistant's turns are learned; tool output is masked.
 - **Proof it helped:** the notebook scores the model before and after on held-out sessions (valid tool calls, same tool as the successful reference). Keep the adapter only if the score improves.
-- **Use it:** put `perdev-lora-f16.gguf` in `E:\Tools\models` and set `perdev.server.chatLoraPath`.
+- **Use it:** put `perdev-lora-f16.gguf` in `D:\PerDev-AI\models` and set `perdev.server.chatLoraPath`.
 
 Steps: kaggle.com → *Create → New Notebook → File → Import Notebook* → pick `training/perdev_finetune.ipynb` → *Settings*: GPU T4 x2 and Internet on → *Save Version → Save & Run All*.
 
