@@ -14,7 +14,44 @@ test('a reply that only plans a change is detected; a finished summary is not', 
   assert.equal(looksLikeUnfinishedPlan('I fixed the `average` function in `calc.py` to handle the empty list. The tests now pass successfully.'), false);
   assert.equal(looksLikeUnfinishedPlan('The function returns the sum of two numbers.'), false);
 });
-import { planEdit, stripLineNumbers } from '../toolSpecs';
+import { formatCommandResult, planEdit, stripLineNumbers } from '../toolSpecs';
+import { LoopGuard } from '../loopGuard';
+import { resolveShell } from '../shell';
+
+test('repeated identical tool calls are blocked, then the run is stopped', () => {
+  const g = new LoopGuard();
+  assert.equal(g.check('run_command', '{"command":"python calc.py"}').action, 'run');
+  g.record('run_command', '{"command":"python calc.py"}', 'exit code: 0\n(the command finished and printed nothing)');
+  const second = g.check('run_command', '{ "command": "python calc.py" }'); // same call, different spacing
+  assert.equal(second.action, 'block');
+  assert.match((second as any).message, /printed nothing/);
+  assert.equal(g.check('run_command', '{"command":"python calc.py"}').action, 'stop'); // third attempt
+  assert.equal(g.check('run_command', '{"command":"python -m unittest"}').action, 'run');
+});
+
+test('after an edit, reading the file again is allowed', () => {
+  const g = new LoopGuard();
+  g.record('read_file', '{"path":"calc.py"}', 'old');
+  assert.equal(g.check('read_file', '{"path":"calc.py"}').action, 'block');
+  g.forgetReads();
+  assert.equal(g.check('read_file', '{"path":"calc.py"}').action, 'run');
+});
+
+test('a silent command says so explicitly', () => {
+  assert.equal(formatCommandResult(0, '', '', ''), 'exit code: 0\n(the command finished and printed nothing)');
+  assert.equal(formatCommandResult(1, '', '', 'boom'), 'exit code: 1\n\n[stderr]\nboom');
+});
+
+test('shell choice: Git Bash or PowerShell on Windows, never WSL bash', () => {
+  const none = resolveShell('auto', 'win32', { ProgramFiles: 'Z:\\nope' });
+  assert.equal(none.kind, 'powershell');
+  assert.equal(resolveShell('cmd', 'win32', {}).kind, 'cmd');
+  if (process.platform === 'win32' && fsSync.existsSync('C:\\Program Files\\Git\\bin\\bash.exe')) {
+    const s = resolveShell('auto', 'win32', process.env);
+    assert.equal(s.kind, 'bash');
+    assert.ok(!/system32/i.test(s.path));
+  }
+});
 
 test('edit with a line-numbered old_str still applies (real 7B output)', () => {
   const file = 'def average(numbers):\n    return sum(numbers) / len(numbers)\n';

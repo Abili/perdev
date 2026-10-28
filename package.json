@@ -144,6 +144,12 @@
           "maximum": 1,
           "description": "When the chat uses this share of the context budget, offer to continue in a new chat that carries a handoff summary and links back to this one."
         },
+        "perdev.agent.shell": {
+          "type": "string",
+          "enum": ["auto", "bash", "powershell", "cmd"],
+          "default": "auto",
+          "description": "Shell for the agent's commands. auto: Git Bash on Windows if installed (models know bash best), otherwise PowerShell."
+        },
         "perdev.agent.approveCommands": {
           "type": "boolean",
           "default": true,

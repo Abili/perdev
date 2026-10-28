@@ -50,6 +50,7 @@ def system_prompt(repo: str) -> str:
         .replace("{platform}", "linux")
         .replace("{release}", "6.8.0")
         .replace("{date}", "2025-06-01")
+        .replace("{shell}", "bash")
     )
 
 
@@ -214,7 +215,7 @@ def convert_row(row: dict, max_chars: int = 40000) -> dict:
                     if not command.strip():
                         raise Skip("empty command")
                     if obs.startswith("Your command ran successfully and did not produce any output"):
-                        result = "exit code: 0\n"
+                        result = "exit code: 0\n" + FORMAT["no_output_note"]
                     else:
                         result = rel_text(obs)
                     new_name, new_args = "run_command", {"command": command}

@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { exec } from 'child_process';
-import { TOOL_SPECS, planEdit, stripLineNumbers, truncate } from './toolSpecs';
+import { TOOL_SPECS, formatCommandResult, planEdit, stripLineNumbers, truncate } from './toolSpecs';
 
 export { TOOL_SPECS };
 
@@ -14,6 +14,7 @@ export interface ToolContext {
   approveCommands: boolean;
   approveEdits: boolean;
   signal: AbortSignal;
+  shellPath?: string; // run_command's shell; default is the OS shell
 }
 
 const EXCLUDE = '**/{node_modules,.git,out,dist,build,.venv,__pycache__}/**';
@@ -145,11 +146,11 @@ async function runCommand(ctx: ToolContext, a: { command: string }) {
   return new Promise<string>((resolve) => {
     const child = exec(
       a.command,
-      { cwd: ctx.root, timeout: 120_000, maxBuffer: 10 * 1024 * 1024, windowsHide: true },
+      { cwd: ctx.root, timeout: 120_000, maxBuffer: 10 * 1024 * 1024, windowsHide: true, ...(ctx.shellPath ? { shell: ctx.shellPath } : {}) },
       (err, stdout, stderr) => {
         const code = err ? ((err as any).code ?? 1) : 0;
         const timedOut = err && (err as any).killed ? ' (timed out or stopped)' : '';
-        resolve(truncate(`exit code: ${code}${timedOut}\n${stdout}${stderr ? `\n[stderr]\n${stderr}` : ''}`));
+        resolve(truncate(formatCommandResult(code, timedOut, stdout, stderr)));
       },
     );
     ctx.signal.addEventListener('abort', () => child.kill(), { once: true });

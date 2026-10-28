@@ -141,6 +141,14 @@ export function planEdit(
   return { ok: true, oldStr, newStr, stripped };
 }
 
+// The text run_command returns. A silent command says so explicitly: a bare
+// "exit code: 0" made the local model think nothing had happened and run it again.
+export const NO_OUTPUT_NOTE = '(the command finished and printed nothing)';
+export function formatCommandResult(code: number | string, note: string, stdout: string, stderr: string): string {
+  const body = stdout || stderr ? `${stdout}${stderr ? `\n[stderr]\n${stderr}` : ''}` : NO_OUTPUT_NOTE;
+  return `exit code: ${code}${note}\n${body}`;
+}
+
 // Same truncation the tools apply at runtime; training data uses it too.
 export function truncate(s: string): string {
   if (s.length <= MAX_OUTPUT) return s;

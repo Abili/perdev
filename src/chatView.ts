@@ -5,6 +5,7 @@ import { Agent, AgentEvent } from './agent';
 import { LlmConfig } from './llm';
 import { TrainingLogger } from './logger';
 import { ChatSession, newSessionId, SessionStore, titleFrom } from './sessions';
+import { resolveShell, ShellPreference } from './shell';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   static readonly viewId = 'perdev.chat';
@@ -68,7 +69,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.post({ type: 'event', event: { type: 'done', outcome: 'error' } });
       return undefined;
     }
-    if (!this.agent) this.agent = new Agent(root);
+    if (!this.agent) {
+      const pref = vscode.workspace.getConfiguration('perdev').get<ShellPreference>('agent.shell', 'auto');
+      this.agent = new Agent(root, resolveShell(pref));
+    }
     return this.agent;
   }
 
@@ -102,7 +106,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         approveCommands: c.get<boolean>('agent.approveCommands', true),
         approveEdits: c.get<boolean>('agent.approveEdits', false),
       },
-      (event: AgentEvent) => this.post({ type: 'event', event }),
+      (event: AgentEvent) => {
+        // Save after every step so a long or stuck run is never lost.
+        if (event.type === 'step') void this.persist();
+        else this.post({ type: 'event', event });
+      },
     );
     await this.persist();
     this.postUsage();

@@ -3,7 +3,7 @@
 // training data matches what the model will see. Run after `npm run compile`.
 const fs = require('fs');
 const path = require('path');
-const { TOOL_SPECS, MAX_OUTPUT } = require('../out/toolSpecs');
+const { TOOL_SPECS, MAX_OUTPUT, NO_OUTPUT_NOTE } = require('../out/toolSpecs');
 const { systemPrompt } = require('../out/prompt');
 
 const out = path.join(__dirname, '..', 'training', 'perdev_format.json');
@@ -14,8 +14,9 @@ fs.writeFileSync(
     {
       tools: TOOL_SPECS,
       max_output: MAX_OUTPUT,
+      no_output_note: NO_OUTPUT_NOTE,
       // Placeholders are filled per example by the dataset builder.
-      system_prompt_template: systemPrompt('{root}', { platform: '{platform}', release: '{release}', date: '{date}' }),
+      system_prompt_template: systemPrompt('{root}', { platform: '{platform}', release: '{release}', date: '{date}', shell: '{shell}' }),
     },
     null,
     2,

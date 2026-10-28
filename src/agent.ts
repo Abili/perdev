@@ -5,6 +5,8 @@ import { ChatMessage, LlmConfig, streamChat } from './llm';
 import { TOOL_SPECS, runTool, ToolContext } from './tools';
 import { conversationSize, trimContext } from './context';
 import { carryOverSection, HANDOFF_PROMPT, looksLikeUnfinishedPlan, systemPrompt } from './prompt';
+import { LoopGuard } from './loopGuard';
+import { resolveShell, Shell } from './shell';
 
 export type AgentEvent =
   | { type: 'text'; delta: string }
@@ -12,13 +14,17 @@ export type AgentEvent =
   | { type: 'tool_start'; id: string; name: string; args: string }
   | { type: 'tool_end'; id: string; result: string }
   | { type: 'error'; message: string }
+  | { type: 'step' } // a round of tool calls finished (the chat is saved)
   | { type: 'done'; outcome: 'done' | 'stopped' | 'error' | 'max_steps' };
 
 export class Agent {
   messages: ChatMessage[] = [];
   private abort?: AbortController;
 
-  constructor(private readonly root: string) {
+  constructor(
+    private readonly root: string,
+    private readonly shell: Shell = resolveShell(),
+  ) {
     this.reset();
   }
 
@@ -29,7 +35,7 @@ export class Agent {
   // carry: handoff from a parent chat, built into the system prompt so it is never trimmed.
   reset(carry?: { parentTitle: string; summary: string }) {
     const extra = carry ? carryOverSection(carry.parentTitle, carry.summary) : '';
-    this.messages = [{ role: 'system', content: systemPrompt(this.root) + extra }];
+    this.messages = [{ role: 'system', content: systemPrompt(this.root, { shell: this.shell.label }) + extra }];
   }
 
   // How full the conversation is, relative to the trimming budget (0..1+).
@@ -70,12 +76,14 @@ export class Agent {
       approveCommands: opts.approveCommands,
       approveEdits: opts.approveEdits,
       signal,
+      shellPath: this.shell.path,
     };
 
     let outcome: 'done' | 'stopped' | 'error' | 'max_steps' = 'max_steps';
     let toolsUsed = 0;
     let retries = 0;
     let temperature: number | undefined;
+    const guard = new LoopGuard();
     try {
       for (let step = 0; step < opts.maxSteps; step++) {
         trimContext(this.messages, opts.maxContextChars);
@@ -101,14 +109,31 @@ export class Agent {
         this.messages.push({ role: 'assistant', content: result.content || null, tool_calls: result.toolCalls });
 
         toolsUsed += result.toolCalls.length;
+        let stopMessage: string | undefined;
         for (const call of result.toolCalls) {
           if (signal.aborted) break;
-          emit({ type: 'tool_start', id: call.id, name: call.function.name, args: call.function.arguments });
-          const output = await runTool(call.function.name, call.function.arguments, ctx);
+          const { name, arguments: args } = call.function;
+          emit({ type: 'tool_start', id: call.id, name, args });
+          const decision = guard.check(name, args);
+          let output: string;
+          if (decision.action === 'run') {
+            output = await runTool(name, args, ctx);
+            guard.record(name, args, output);
+            if ((name === 'write_file' || name === 'edit_file') && !output.startsWith('Error:')) guard.forgetReads();
+          } else {
+            output = decision.message;
+            if (decision.action === 'stop') stopMessage = decision.message;
+          }
           emit({ type: 'tool_end', id: call.id, result: output });
-          this.messages.push({ role: 'tool', tool_call_id: call.id, name: call.function.name, content: output });
+          this.messages.push({ role: 'tool', tool_call_id: call.id, name, content: output });
         }
+        emit({ type: 'step' });
         if (signal.aborted) throw new DOMException('Stopped', 'AbortError');
+        if (stopMessage) {
+          emit({ type: 'error', message: stopMessage });
+          outcome = 'stopped';
+          break;
+        }
       }
       if (outcome === 'max_steps') {
         emit({ type: 'error', message: `Stopped after ${opts.maxSteps} steps. Say "continue" to keep going.` });

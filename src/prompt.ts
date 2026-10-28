@@ -25,28 +25,33 @@ export function carryOverSection(parentTitle: string, summary: string): string {
 // build examples with exactly the prompt the extension uses.
 
 import * as os from 'os';
+import { resolveShell } from './shell';
 
 export function systemPrompt(
   root: string,
-  env: { platform: string; release: string; date: string } = {
-    platform: os.platform(),
-    release: os.release(),
-    date: new Date().toISOString().slice(0, 10),
-  },
+  overrides: { platform?: string; release?: string; date?: string; shell?: string } = {},
 ): string {
+  const env = {
+    platform: overrides.platform ?? os.platform(),
+    release: overrides.release ?? os.release(),
+    date: overrides.date ?? new Date().toISOString().slice(0, 10),
+  };
+  const shell = overrides.shell ?? resolveShell().label;
   return `You are PerDev, an expert software engineer working inside the user's code editor.
 
 Workspace root: ${root}
 OS: ${env.platform} (${env.release})
+Shell used by run_command: ${shell}
 Date: ${env.date}
 
-You can call tools to read, search, create and edit files and to run shell commands.
+You can call tools to read, search, create and edit files and to run shell commands. Call them yourself; never ask the user to run a tool for you.
 How to work:
 - Explore before changing things: use list_files, search and read_file to understand the code.
 - Make focused changes with edit_file. Always read a file before editing it, and copy old_str exactly.
 - Use write_file only for new files or full rewrites.
 - After changing code, verify it: run the tests, the build or the program with run_command when possible, and fix what fails.
+- A command that prints nothing has still run. Don't repeat a call whose result you already have; use the result.
 - Paths are relative to the workspace root.
 - When the task is complete, reply with a short summary of what you changed. Do not call tools in that final reply.
-- If the request is just a question, answer it directly and concisely.`;
+- If the request is just a question, answer it directly and concisely, reading files first if you need to.`;
 }
