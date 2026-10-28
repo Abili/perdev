@@ -96,41 +96,91 @@ export async function streamChat(
     }
   }
 
-  let toolCalls = [...calls.values()];
-  if (toolCalls.length === 0) {
-    toolCalls = parseFallbackToolCalls(content);
-  }
-  return { content, toolCalls };
+  if (calls.size > 0) return { content, toolCalls: [...calls.values()] };
+  const fallback = parseFallbackToolCalls(content, tools.map((t) => t.function.name));
+  if (!fallback.call) return { content, toolCalls: [] };
+  // Keep only what came before the call: the rest is a plan that depends on
+  // results the model hasn't seen yet (often with invented results).
+  return { content: fallback.before, toolCalls: [fallback.call] };
 }
 
 // Small open models sometimes write tool calls as text instead of using the
-// structured field. Accept <tool_call>{...}</tool_call> blocks and bare
-// {"name": ..., "arguments": ...} JSON objects.
-export function parseFallbackToolCalls(text: string): ToolCall[] {
-  const candidates: string[] = [];
-  const tagged = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g;
-  let m: RegExpExecArray | null;
-  while ((m = tagged.exec(text))) candidates.push(m[1]);
-  if (candidates.length === 0) {
-    const fenced = /```(?:json)?\s*(\{[\s\S]*?\})\s*```/g;
-    while ((m = fenced.exec(text))) candidates.push(m[1]);
-  }
-  if (candidates.length === 0 && text.trim().startsWith('{')) candidates.push(text.trim());
-
-  const calls: ToolCall[] = [];
-  for (const c of candidates) {
-    try {
-      const obj = JSON.parse(c);
-      if (typeof obj.name !== 'string') continue;
-      const args = obj.arguments ?? obj.parameters ?? {};
-      calls.push({
-        id: `call_fb_${calls.length}_${Date.now()}`,
-        type: 'function',
-        function: { name: obj.name, arguments: typeof args === 'string' ? args : JSON.stringify(args) },
-      });
-    } catch {
-      // not a tool call
+// structured field: <tool_call>{...}</tool_call> blocks, ```json fences or bare
+// {"name": ..., "arguments": ...} objects, often several in a row as a plan.
+// Returns only the first real call, plus the text before it. Objects with a
+// "result"/"output" field are the model imagining a tool's answer, not a call.
+export function parseFallbackToolCalls(text: string, toolNames?: string[]): { call?: ToolCall; before: string } {
+  const found: { json: string; index: number }[] = [];
+  const add = (re: RegExp) => {
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text))) found.push({ json: m[1], index: m.index });
+  };
+  add(/<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g);
+  if (found.length === 0) add(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/g);
+  if (found.length === 0) {
+    // A bare {"name": ...} object anywhere in the text, possibly mid-sentence.
+    const re = /\{\s*"name"\s*:/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text))) {
+      const json = extractJsonObject(text, m.index);
+      if (json) found.push({ json, index: m.index });
     }
   }
-  return calls;
+
+  for (const f of found.sort((a, b) => a.index - b.index)) {
+    let obj: any;
+    try {
+      obj = JSON.parse(f.json);
+    } catch {
+      continue;
+    }
+    if (typeof obj?.name !== 'string') continue;
+    if (toolNames && !toolNames.includes(obj.name)) continue;
+    if ('result' in obj || 'output' in obj) continue;
+    const args = obj.arguments ?? obj.parameters ?? {};
+    return {
+      call: {
+        id: `call_fb_${Date.now()}`,
+        type: 'function',
+        function: { name: obj.name, arguments: typeof args === 'string' ? args : JSON.stringify(args) },
+      },
+      before: text.slice(0, f.index).trim(),
+    };
+  }
+  return { before: text };
+}
+
+// The balanced {...} starting at `start`, respecting JSON strings; undefined if unbalanced.
+export function extractJsonObject(text: string, start: number): string | undefined {
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === '\\') i++;
+      else if (ch === '"') inString = false;
+    } else if (ch === '"') inString = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}' && --depth === 0) return text.slice(start, i + 1);
+  }
+  return undefined;
+}
+
+// When the model announces a step ("Let's read calc.py.") but stops, continue
+// its own reply with the start of a tool call so the only natural continuation
+// is the call itself. llama.cpp continues a trailing assistant message (prefill).
+// Measured on Qwen2.5-Coder-7B: 6/6 correct calls, versus re-asking, which
+// usually repeats the announcement.
+const PREFILL = '\n<tool_call>\n{"name": "';
+export async function continueAsToolCall(
+  cfg: LlmConfig,
+  messages: ChatMessage[],
+  tools: ToolSpec[],
+  replySoFar: string,
+  signal: AbortSignal,
+): Promise<ToolCall | undefined> {
+  const prefilled: ChatMessage[] = [...messages, { role: 'assistant', content: replySoFar.trim() + PREFILL }];
+  const r = await streamChat(cfg, prefilled, tools, () => {}, signal);
+  const text = '{"name": "' + r.content;
+  return parseFallbackToolCalls(text, tools.map((t) => t.function.name)).call;
 }

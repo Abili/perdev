@@ -1,10 +1,10 @@
 // The agent loop: ask the model, run any tools it calls, feed results back,
 // repeat until it answers without tools.
 
-import { ChatMessage, LlmConfig, streamChat } from './llm';
+import { ChatMessage, continueAsToolCall, LlmConfig, streamChat } from './llm';
 import { TOOL_SPECS, runTool, ToolContext } from './tools';
 import { conversationSize, trimContext } from './context';
-import { carryOverSection, HANDOFF_PROMPT, looksLikeUnfinishedPlan, systemPrompt } from './prompt';
+import { carryOverSection, HANDOFF_PROMPT, looksLikeAskingUserToAct, looksLikeUnfinishedPlan, systemPrompt } from './prompt';
 import { LoopGuard } from './loopGuard';
 import { resolveShell, Shell } from './shell';
 
@@ -16,6 +16,8 @@ export type AgentEvent =
   | { type: 'error'; message: string }
   | { type: 'step' } // a round of tool calls finished (the chat is saved)
   | { type: 'done'; outcome: 'done' | 'stopped' | 'error' | 'max_steps' };
+
+const TOOL_NAMES = TOOL_SPECS.map((t) => t.function.name);
 
 export class Agent {
   messages: ChatMessage[] = [];
@@ -87,27 +89,40 @@ export class Agent {
     try {
       for (let step = 0; step < opts.maxSteps; step++) {
         trimContext(this.messages, opts.maxContextChars);
-        const result = await streamChat(cfg, this.messages, TOOL_SPECS, (d) => emit({ type: 'text', delta: d }), signal, temperature);
+        let result = await streamChat(cfg, this.messages, TOOL_SPECS, (d) => emit({ type: 'text', delta: d }), signal, temperature);
         emit({ type: 'assistant_end' });
         temperature = undefined;
 
         if (result.toolCalls.length === 0) {
-          // Mid-task, small models sometimes stop to describe the next change instead
-          // of making it. Measured on Qwen2.5-Coder-7B: telling it to act afterwards
-          // doesn't work (it just ends), but re-asking the same step usually does.
-          // So drop that reply and retry (up to twice), a little less deterministically.
-          if (toolsUsed > 0 && retries < 2 && (!result.content.trim() || looksLikeUnfinishedPlan(result.content))) {
+          // Small models often stall: mid-task they announce the next step ("Let's
+          // read calc.py.") or describe a change and stop, and from the first step on
+          // they may ask the user to run a tool ("Please call read_file ..."). Measured
+          // on Qwen2.5-Coder-7B, telling it to act afterwards doesn't work (it just
+          // ends). What works is continuing its reply with the start of a tool call;
+          // if that fails, drop the reply and re-ask a little less deterministically.
+          const asking = looksLikeAskingUserToAct(result.content, TOOL_NAMES);
+          const midTaskStall = toolsUsed > 0 && (!result.content.trim() || looksLikeUnfinishedPlan(result.content));
+          if (retries < 2 && (midTaskStall || asking)) {
             retries++;
-            temperature = 0.4;
-            continue;
+            const keep = asking ? '' : result.content;
+            const call = await continueAsToolCall(cfg, this.messages, TOOL_SPECS, keep, signal);
+            if (!call) {
+              temperature = 0.4;
+              continue;
+            }
+            result = { content: keep, toolCalls: [call] };
+          } else {
+            this.messages.push({ role: 'assistant', content: result.content || null });
+            outcome = 'done';
+            break;
           }
-          this.messages.push({ role: 'assistant', content: result.content || null });
-          outcome = 'done';
-          break;
         }
 
         this.messages.push({ role: 'assistant', content: result.content || null, tool_calls: result.toolCalls });
 
+        // A tool call (the model's own or recovered from a stall) is progress, so only
+        // consecutive failed recoveries count. Loops stay bounded by maxSteps and LoopGuard.
+        retries = 0;
         toolsUsed += result.toolCalls.length;
         let stopMessage: string | undefined;
         for (const call of result.toolCalls) {

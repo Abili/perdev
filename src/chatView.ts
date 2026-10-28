@@ -6,6 +6,7 @@ import { LlmConfig } from './llm';
 import { TrainingLogger } from './logger';
 import { ChatSession, newSessionId, SessionStore, titleFrom } from './sessions';
 import { resolveShell, ShellPreference } from './shell';
+import { workspaceOverview } from './prompt';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   static readonly viewId = 'perdev.chat';
@@ -97,8 +98,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const { c, cfg, maxContextChars } = this.settings();
 
     this.post({ type: 'user', text });
+    // First message of a chat: tell the model what's in the workspace.
+    const firstMessage = !agent.messages.some((m) => m.role === 'user');
+    const overview = firstMessage ? workspaceOverview(await listWorkspace()) : '';
     const outcome = await agent.run(
-      withEditorContext(text),
+      withEditorContext(text) + overview,
       cfg,
       {
         maxSteps: c.get<number>('agent.maxSteps', 25),
@@ -217,7 +221,12 @@ function blankSession(): ChatSession {
 }
 
 function stripEditorContext(text: string): string {
-  return text.replace(/\n\n\[Context:[\s\S]*$/, '');
+  return text.replace(/\n\n\[(Context|Workspace)[\s\S]*$/, '');
+}
+
+async function listWorkspace(): Promise<string[]> {
+  const uris = await vscode.workspace.findFiles('**/*', '**/{node_modules,.git,out,dist,build,.venv,venv,__pycache__,.vscode}/**', 200);
+  return uris.map((u) => vscode.workspace.asRelativePath(u));
 }
 
 // Tell the model which file the user is looking at, plus any selection.

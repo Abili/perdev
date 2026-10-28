@@ -1,9 +1,25 @@
 // True when a reply only describes the next change instead of making it or
 // reporting that the work is done.
 export function looksLikeUnfinishedPlan(text: string): boolean {
-  const plan = /\b(we need to|need to|let's|let me|i'll|i will|we should|to fix this|we can fix|next,? (i|we))\b/i;
+  const plan = /\b(we need to|need to|let's|let me(?! know)|i'll|i will|we should|to fix this|we can fix|next,? (i|we))\b/i;
   const finished = /\b(i (fixed|changed|updated|added|made)|i've (fixed|changed|updated|added|made)|now pass|tests pass|all tests|is now fixed|have been (fixed|made))\b/i;
   return plan.test(text) && !finished.test(text);
+}
+
+// True when a reply asks the user to do the agent's job, e.g. "Please call
+// read_file with the path to calc.py" (frequent with the local 7B model).
+export function looksLikeAskingUserToAct(text: string, toolNames: string[]): boolean {
+  const asks = /\b(please|could you|can you|would you)\b[^.?!]{0,80}\b(call|run|use|provide|share|paste|send|show)\b/i.test(text);
+  return asks && (toolNames.some((n) => text.includes(n)) || /\b(contents?|code|file)\b/i.test(text));
+}
+
+// Added to the first message of a chat so the model knows what kind of project
+// it is in. Without it the local 7B model guessed (e.g. "npm test" in a Python project).
+export function workspaceOverview(paths: string[], max = 60): string {
+  if (paths.length === 0) return '\n\n[Workspace: empty folder]';
+  const shown = [...paths].sort().slice(0, max);
+  const more = paths.length > max ? `\n... and ${paths.length - max} more files` : '';
+  return `\n\n[Workspace files:\n${shown.join('\n')}${more}]`;
 }
 
 // Asked of the model when a long chat is continued in a new, branched chat.

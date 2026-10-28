@@ -6,7 +6,14 @@ import { trimContext } from '../context';
 import { cleanCompletion, fimFormatFor } from '../fim';
 import { ChatMessage } from '../llm';
 import { SessionStore, newSessionId, titleFrom } from '../sessions';
-import { carryOverSection, looksLikeUnfinishedPlan } from '../prompt';
+import { carryOverSection, looksLikeAskingUserToAct, looksLikeUnfinishedPlan } from '../prompt';
+
+test('a reply asking the user to run a tool is detected (real 7B replies)', () => {
+  const names = ['read_file', 'list_files'];
+  assert.equal(looksLikeAskingUserToAct("To understand what `calc.py` does, I'll need to read its contents. Please call `read_file` with the path to `calc.py`.", names), true);
+  assert.equal(looksLikeAskingUserToAct("I'll need to read its contents. Could you please provide the content of calc.py?", names), true);
+  assert.equal(looksLikeAskingUserToAct('calc.py defines add, subtract and average. Please run the tests when you can.', names), false);
+});
 
 test('a reply that only plans a change is detected; a finished summary is not', () => {
   // Real replies from the local 7B model.
@@ -24,8 +31,9 @@ test('repeated identical tool calls are blocked, then the run is stopped', () =>
   g.record('run_command', '{"command":"python calc.py"}', 'exit code: 0\n(the command finished and printed nothing)');
   const second = g.check('run_command', '{ "command": "python calc.py" }'); // same call, different spacing
   assert.equal(second.action, 'block');
-  assert.match((second as any).message, /printed nothing/);
-  assert.equal(g.check('run_command', '{"command":"python calc.py"}').action, 'stop'); // third attempt
+  assert.match((second as any).message, /printed nothing[\s\S]*not run again/);
+  assert.equal(g.check('run_command', '{"command":"python calc.py"}').action, 'block');
+  assert.equal(g.check('run_command', '{"command":"python calc.py"}').action, 'stop'); // fourth identical call
   assert.equal(g.check('run_command', '{"command":"python -m unittest"}').action, 'run');
 });
 
@@ -120,21 +128,49 @@ test('carried-over summary names the parent chat', () => {
   assert.match(s, /Next steps: run tests/);
 });
 
+const TOOLS = ['read_file', 'write_file', 'edit_file', 'list_files', 'search', 'run_command'];
+
 test('fallback parser reads <tool_call> blocks', () => {
-  const calls = parseFallbackToolCalls('Let me look.\n<tool_call>\n{"name": "read_file", "arguments": {"path": "a.ts"}}\n</tool_call>');
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].function.name, 'read_file');
-  assert.deepEqual(JSON.parse(calls[0].function.arguments), { path: 'a.ts' });
+  const r = parseFallbackToolCalls('Let me look.\n<tool_call>\n{"name": "read_file", "arguments": {"path": "a.ts"}}\n</tool_call>', TOOLS);
+  assert.equal(r.call?.function.name, 'read_file');
+  assert.deepEqual(JSON.parse(r.call!.function.arguments), { path: 'a.ts' });
+  assert.equal(r.before, 'Let me look.');
 });
 
 test('fallback parser reads fenced JSON and bare JSON', () => {
-  assert.equal(parseFallbackToolCalls('```json\n{"name":"list_files","arguments":{}}\n```')[0].function.name, 'list_files');
-  assert.equal(parseFallbackToolCalls('{"name":"search","parameters":{"regex":"x"}}')[0].function.name, 'search');
+  assert.equal(parseFallbackToolCalls('```json\n{"name":"list_files","arguments":{}}\n```', TOOLS).call?.function.name, 'list_files');
+  assert.equal(parseFallbackToolCalls('{"name":"search","parameters":{"regex":"x"}}', TOOLS).call?.function.name, 'search');
 });
 
-test('fallback parser ignores ordinary answers', () => {
-  assert.equal(parseFallbackToolCalls('Here is the fix:\n```ts\nconst x = { a: 1 };\n```').length, 0);
-  assert.equal(parseFallbackToolCalls('The answer is 42.').length, 0);
+test('a written-out plan runs only its first call and drops invented results (real 7B reply)', () => {
+  const reply =
+    "To understand what `calc.py` does, I'll first list the files.\n\n```json\n{\"name\": \"list_files\", \"arguments\": {\"pattern\": \"calc.py\"}}\n```\n\n" +
+    'Next, search.\n\n```json\n{"name": "search", "arguments": {"regex": "calc"}}\n```\n\n' +
+    'After running the above commands, here\'s the summary:\n```json\n{"name": "list_files", "arguments": {"pattern": "calc.py"}, "result": ["calc.py"]}\n```';
+  const r = parseFallbackToolCalls(reply, TOOLS);
+  assert.equal(r.call?.function.name, 'list_files');
+  assert.equal(r.before, "To understand what `calc.py` does, I'll first list the files.");
+  // A block that only shows an imagined result is never run.
+  assert.equal(parseFallbackToolCalls('```json\n{"name": "list_files", "arguments": {}, "result": ["a"]}\n```', TOOLS).call, undefined);
+});
+
+test('a bare JSON call mid-sentence is found (real 7B reply)', () => {
+  const r = parseFallbackToolCalls("It appears that `calc.py` exists. Let's read its contents.  {\"name\": \"read_file\", \"arguments\": {\"path\": \"calc.py\"}} Then I'll explain.", TOOLS);
+  assert.equal(r.call?.function.name, 'read_file');
+  assert.equal(r.before, "It appears that `calc.py` exists. Let's read its contents.");
+  // What a prefilled continuation looks like once the prefix is put back.
+  assert.equal(parseFallbackToolCalls('{"name": "' + 'read_file", "arguments": {"path": "calc.py"}}\n\n', TOOLS).call?.function.name, 'read_file');
+});
+
+test('"let me know" is not an unfinished plan', () => {
+  assert.equal(looksLikeUnfinishedPlan('calc.py defines add, subtract and average. Let me know if you want tests.'), false);
+  assert.equal(looksLikeUnfinishedPlan("Let me read calc.py first."), true);
+});
+
+test('fallback parser ignores ordinary answers and unknown names', () => {
+  assert.equal(parseFallbackToolCalls('Here is the fix:\n```ts\nconst x = { a: 1 };\n```', TOOLS).call, undefined);
+  assert.equal(parseFallbackToolCalls('The answer is 42.', TOOLS).call, undefined);
+  assert.equal(parseFallbackToolCalls('```json\n{"name": "John", "arguments": {}}\n```', TOOLS).call, undefined);
 });
 
 test('trimContext removes old tool output first and keeps system + latest user', () => {

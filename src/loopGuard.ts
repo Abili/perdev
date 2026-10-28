@@ -10,7 +10,8 @@ export type GuardDecision =
 export class LoopGuard {
   private seen = new Map<string, { count: number; result: string }>();
 
-  constructor(private readonly maxRepeats = 2) {}
+  // maxRepeats: identical calls answered from the earlier result before the run stops.
+  constructor(private readonly maxRepeats = 3) {}
 
   static key(name: string, rawArgs: string): string {
     let args: unknown = rawArgs;
@@ -33,12 +34,13 @@ export class LoopGuard {
         message: `PerDev stopped because the model kept repeating the same step (${describe(name, rawArgs)}). Try rephrasing the request or giving more detail.`,
       };
     }
-    const shown = prev.result.length > 600 ? prev.result.slice(0, 600) + '\n...' : prev.result;
+    // Hand back the full earlier result: the model may genuinely need it again
+    // (e.g. to copy old_str exactly after a failed edit), just not to rerun it.
     return {
       action: 'block',
       message:
-        `Not run again: you already made this exact ${name} call and nothing has changed since. Its result was:\n${shown}\n\n` +
-        'Do not repeat it. Use that result: take a different step, or if the task is done, reply with a short summary.',
+        `${prev.result}\n\n[Same result as your earlier identical ${name} call: nothing has changed since, so it was not run again. ` +
+        'Use this result for your next step; do not repeat the call.]',
     };
   }
 

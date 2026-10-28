@@ -24,7 +24,7 @@ export function newSessionId(): string {
 // Title from the first real user message, without the editor context we append.
 export function titleFrom(messages: ChatMessage[]): string {
   const first = messages.find((m) => m.role === 'user')?.content ?? '';
-  const clean = first.replace(/\n\n\[Context:[\s\S]*$/, '').replace(/\s+/g, ' ').trim();
+  const clean = first.replace(/\n\n\[(Context|Workspace)[\s\S]*$/, '').replace(/\s+/g, ' ').trim();
   return clean.length > 60 ? clean.slice(0, 57) + '...' : clean || 'New chat';
 }
 
