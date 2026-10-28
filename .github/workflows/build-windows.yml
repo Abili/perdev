@@ -170,6 +170,11 @@ jobs:
 
       - name: Create installer and zip
         working-directory: vscodium
+        # No MSI packages: VSCodium's WiX recipe hardcodes VSCodium.exe, and the
+        # setup .exe and zip cover normal installs.
+        env:
+          SHOULD_BUILD_MSI: 'no'
+          SHOULD_BUILD_MSI_NOUP: 'no'
         run: ./prepare_assets.sh
 
       - name: Upload PerDev for Windows
