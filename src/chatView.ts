@@ -36,6 +36,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
+  // Put text in the chat box (e.g. a new project's first request), ready to send.
+  prefill(text: string) {
+    this.post({ type: 'prefill', text });
+  }
+
   newChat() {
     this.agent?.stop();
     this.agent?.reset();
@@ -70,7 +75,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private getAgent(): Agent | undefined {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!root) {
-      this.post({ type: 'event', event: { type: 'error', message: 'Open a folder first. PerDev works inside a workspace.' } });
+      this.post({ type: 'event', event: { type: 'error', message: 'No project is open yet. Start one from the PerDev start screen (rocket button above, or "PerDev: New Project"), or open a folder.' } });
       this.post({ type: 'event', event: { type: 'done', outcome: 'error' } });
       return undefined;
     }
@@ -375,6 +380,7 @@ function html(n: string) {
   }
 
   window.addEventListener('message', ({ data }) => {
+    if (data.type === 'prefill') { input.value = data.text; input.dispatchEvent(new Event('input')); input.focus(); return; }
     if (data.type === 'clear') { log.innerHTML = '<div class="empty" id="empty">New chat. What should we build?</div>'; current = null; dismissed = false; return; }
     if (data.type === 'usage') { showUsage(data); return; }
     if (data.type === 'user') { add('user', esc(data.text)); setRunning(true); current = null; return; }

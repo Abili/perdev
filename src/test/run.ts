@@ -26,6 +26,31 @@ import { LoopGuard } from '../loopGuard';
 import { resolveShell } from '../shell';
 import { DocsLookup, extractSection, htmlToText, pickDocSet, rank } from '../docs';
 import { McpClient, resultText } from '../mcp';
+import { checkAvailability, packageName, PROJECT_TYPES, writeStarterFiles } from '../projectTypes';
+
+test('project types: every card has a setup, names are made safe, iOS needs a Mac', async () => {
+  assert.ok(PROJECT_TYPES.length >= 9);
+  for (const t of PROJECT_TYPES) assert.ok(t.setup && t.agentPrompt && t.title, t.id);
+  assert.equal(packageName('My Cool App!'), 'my-cool-app');
+  assert.equal(PROJECT_TYPES.find((t) => t.id === 'flutter')!.setup.kind === 'command' && (PROJECT_TYPES.find((t) => t.id === 'flutter')!.setup as any).command('Shop App 2'), 'flutter create --project-name shop_app_2 .');
+  const win = await checkAvailability('win32');
+  assert.equal(win.ios.ok, false);
+  assert.match(win.ios.note!, /needs a Mac/);
+  assert.equal(win['static-site'].ok, true); // nothing required
+});
+
+test('starter files are written but never overwrite existing files', () => {
+  const dir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'perdev-start-'));
+  const site = PROJECT_TYPES.find((t) => t.id === 'static-site')!;
+  fsSync.writeFileSync(path.join(dir, 'index.html'), 'mine');
+  const written = writeStarterFiles(dir, (site.setup as any).files('Shop'));
+  assert.deepEqual(written.sort(), ['app.js', 'style.css']);
+  assert.equal(fsSync.readFileSync(path.join(dir, 'index.html'), 'utf8'), 'mine');
+  const api = PROJECT_TYPES.find((t) => t.id === 'node-api')!;
+  writeStarterFiles(dir, (api.setup as any).files('My Shop'));
+  assert.equal(JSON.parse(fsSync.readFileSync(path.join(dir, 'package.json'), 'utf8')).name, 'my-shop');
+  fsSync.rmSync(dir, { recursive: true, force: true });
+});
 import { isAndroidProject, McpManager } from '../mcpManager';
 
 // A minimal MCP server over stdio, standing in for DroidLoop.

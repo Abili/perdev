@@ -6,6 +6,8 @@ import { TrainingLogger } from './logger';
 import { LocalServers } from './server';
 import { SessionStore } from './sessions';
 import { McpManager } from './mcpManager';
+import { resumePendingProject, StartPage } from './startPage';
+import { resolveShell, ShellPreference } from './shell';
 
 export function activate(context: vscode.ExtensionContext) {
   const servers = new LocalServers();
@@ -45,10 +47,21 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
 
-  // First launch: open the agent panel so people see PerDev right away.
-  if (!context.globalState.get<boolean>('perdev.panelShown')) {
-    vscode.commands.executeCommand('workbench.view.extension.perdev');
-    context.globalState.update('perdev.panelShown', true);
+  const start = new StartPage(context);
+  context.subscriptions.push(vscode.commands.registerCommand('perdev.newProject', () => start.show()));
+
+  if (!vscode.workspace.workspaceFolders?.length) {
+    // No project open: greet with "What are you building today?".
+    if (vscode.workspace.getConfiguration('perdev').get<boolean>('startPage.show', true)) start.show();
+  } else {
+    // A project just created from the start page: run its setup and queue the first request.
+    const shell = resolveShell(vscode.workspace.getConfiguration('perdev').get<ShellPreference>('agent.shell', 'auto'));
+    void resumePendingProject(context, (text) => chat.prefill(text), shell.kind === 'bash' ? shell.path : undefined, shell.kind === 'bash' ? 'bash' : 'powershell');
+    // First launch: open the agent panel so people see PerDev right away.
+    if (!context.globalState.get<boolean>('perdev.panelShown')) {
+      vscode.commands.executeCommand('workbench.view.extension.perdev');
+      context.globalState.update('perdev.panelShown', true);
+    }
   }
 }
 

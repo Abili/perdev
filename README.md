@@ -2,6 +2,8 @@
 
 A free, local-first AI code editor that runs on **your own model**. PerDev is its own app, built on the open-source VS Code core (via VSCodium: no telemetry, Open VSX extensions), with its AI built in.
 
+- **Start screen**: PerDev opens to "What are you building today?" with project cards for Mobile (React Native, Flutter, Android, iOS), Web (static site, React, Next.js) and Backend & scripts (Node API, FastAPI, Python). Each card checks whether its tools are installed. Creating a project runs the official generator in a visible terminal (or writes a small offline starter) and hands your description to the agent.
+- **Android device tools**: with [DroidLoop](https://github.com/Abili) (or any MCP server) listed in `perdev.mcpServers`, the agent can build, install, launch and drive Android apps on a phone or emulator, reading the screen as text after every action.
 - **Agent chat** (sidebar): reads, searches and edits files and runs commands to finish real tasks.
 - **Official docs lookup**: the agent can look things up in the official documentation of ~800 languages and libraries (Python, JavaScript/MDN, TypeScript, Node.js, React, Rust, Go, Django, NumPy...) through [DevDocs](https://devdocs.io). Only a small search index (once per doc set) and single pages are downloaded, and both are cached, so it stays usable on a slow connection. Turn it off with `perdev.docs.enabled`.
 - **Tab autocomplete**: fill-in-the-middle ghost text from a small, fast local model.

@@ -9,9 +9,15 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "categories": ["Programming Languages", "Machine Learning", "Other"],
+  "categories": [
+    "Programming Languages",
+    "Machine Learning",
+    "Other"
+  ],
   "main": "./out/extension.js",
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -32,20 +38,71 @@
       ]
     },
     "commands": [
-      { "command": "perdev.newChat", "title": "PerDev: New Chat", "icon": "$(add)" },
-      { "command": "perdev.stop", "title": "PerDev: Stop Agent", "icon": "$(debug-stop)" },
-      { "command": "perdev.branchChat", "title": "PerDev: Continue in New Chat (carry a summary)", "icon": "$(git-branch)" },
-      { "command": "perdev.history", "title": "PerDev: Open Previous Chat", "icon": "$(history)" },
-      { "command": "perdev.openDataFolder", "title": "PerDev: Open Training Data Folder" },
-      { "command": "perdev.startServers", "title": "PerDev: Start Local Model Servers" },
-      { "command": "perdev.toggleAutocomplete", "title": "PerDev: Toggle Autocomplete" }
+      {
+        "command": "perdev.newProject",
+        "title": "PerDev: New Project",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "perdev.newChat",
+        "title": "PerDev: New Chat",
+        "icon": "$(add)"
+      },
+      {
+        "command": "perdev.stop",
+        "title": "PerDev: Stop Agent",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "perdev.branchChat",
+        "title": "PerDev: Continue in New Chat (carry a summary)",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "perdev.history",
+        "title": "PerDev: Open Previous Chat",
+        "icon": "$(history)"
+      },
+      {
+        "command": "perdev.openDataFolder",
+        "title": "PerDev: Open Training Data Folder"
+      },
+      {
+        "command": "perdev.startServers",
+        "title": "PerDev: Start Local Model Servers"
+      },
+      {
+        "command": "perdev.toggleAutocomplete",
+        "title": "PerDev: Toggle Autocomplete"
+      }
     ],
     "menus": {
       "view/title": [
-        { "command": "perdev.newChat", "when": "view == perdev.chat", "group": "navigation" },
-        { "command": "perdev.branchChat", "when": "view == perdev.chat", "group": "navigation" },
-        { "command": "perdev.history", "when": "view == perdev.chat", "group": "navigation" },
-        { "command": "perdev.stop", "when": "view == perdev.chat", "group": "navigation" }
+        {
+          "command": "perdev.newProject",
+          "when": "view == perdev.chat",
+          "group": "navigation@0"
+        },
+        {
+          "command": "perdev.newChat",
+          "when": "view == perdev.chat",
+          "group": "navigation"
+        },
+        {
+          "command": "perdev.branchChat",
+          "when": "view == perdev.chat",
+          "group": "navigation"
+        },
+        {
+          "command": "perdev.history",
+          "when": "view == perdev.chat",
+          "group": "navigation"
+        },
+        {
+          "command": "perdev.stop",
+          "when": "view == perdev.chat",
+          "group": "navigation"
+        }
       ]
     },
     "configuration": {
@@ -73,7 +130,10 @@
         },
         "perdev.autocomplete.backend": {
           "type": "string",
-          "enum": ["llamacpp", "ollama"],
+          "enum": [
+            "llamacpp",
+            "ollama"
+          ],
           "default": "llamacpp",
           "description": "Server type for autocomplete: llama.cpp (/completion) or Ollama (/api/generate)."
         },
@@ -146,7 +206,12 @@
         },
         "perdev.agent.shell": {
           "type": "string",
-          "enum": ["auto", "bash", "powershell", "cmd"],
+          "enum": [
+            "auto",
+            "bash",
+            "powershell",
+            "cmd"
+          ],
           "default": "auto",
           "description": "Shell for the agent's commands. auto: Git Bash on Windows if installed (models know bash best), otherwise PowerShell."
         },
@@ -157,16 +222,47 @@
           "additionalProperties": {
             "type": "object",
             "properties": {
-              "command": { "type": "string" },
-              "args": { "type": "array", "items": { "type": "string" } },
-              "env": { "type": "object" },
-              "when": { "type": "string", "enum": ["always", "android"] },
-              "tools": { "type": "array", "items": { "type": "string" } },
-              "readOnlyTools": { "type": "array", "items": { "type": "string" } },
-              "approve": { "type": "boolean" },
-              "enabled": { "type": "boolean" }
+              "command": {
+                "type": "string"
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "env": {
+                "type": "object"
+              },
+              "when": {
+                "type": "string",
+                "enum": [
+                  "always",
+                  "android"
+                ]
+              },
+              "tools": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "readOnlyTools": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "approve": {
+                "type": "boolean"
+              },
+              "enabled": {
+                "type": "boolean"
+              }
             },
-            "required": ["command"]
+            "required": [
+              "command"
+            ]
           }
         },
         "perdev.docs.enabled": {
@@ -193,8 +289,227 @@
           "type": "boolean",
           "default": true,
           "description": "Log agent sessions and accepted completions for fine-tuning later. Data never leaves your machine."
+        },
+        "perdev.startPage.show": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the \"What are you building today?\" start screen when PerDev opens without a project."
+        },
+        "perdev.projectsFolder": {
+          "type": "string",
+          "default": "",
+          "description": "Where new projects from the start screen are created. Empty: a PerDevProjects folder in your home directory."
         }
       }
+    },
+    "configurationDefaults": {
+      "workbench.colorTheme": "Default Dark Modern",
+      "workbench.colorCustomizations": {
+        "[Default Dark Modern]": {
+          "focusBorder": "#2d5bff",
+          "foreground": "#c9cfe0",
+          "descriptionForeground": "#8b93ab",
+          "textLink.foreground": "#6f8dff",
+          "textLink.activeForeground": "#8aa3ff",
+          "titleBar.activeBackground": "#090b12",
+          "titleBar.inactiveBackground": "#090b12",
+          "titleBar.border": "#151a28",
+          "activityBar.background": "#090b12",
+          "activityBar.border": "#151a28",
+          "activityBar.foreground": "#e8ebf4",
+          "activityBar.inactiveForeground": "#5b6480",
+          "activityBar.activeBorder": "#2d5bff",
+          "activityBarBadge.background": "#2d5bff",
+          "sideBar.background": "#0c0f18",
+          "sideBar.border": "#151a28",
+          "sideBarSectionHeader.background": "#0c0f18",
+          "sideBarSectionHeader.border": "#151a28",
+          "sideBarTitle.foreground": "#8b93ab",
+          "editor.background": "#0e1119",
+          "editorGutter.background": "#0e1119",
+          "editor.lineHighlightBackground": "#141a2a",
+          "editor.lineHighlightBorder": "#141a2a",
+          "editor.selectionBackground": "#2d5bff40",
+          "editorCursor.foreground": "#6f8dff",
+          "editorLineNumber.foreground": "#3a4360",
+          "editorLineNumber.activeForeground": "#9aa3bd",
+          "editorIndentGuide.background1": "#1a2033",
+          "editorWidget.background": "#121726",
+          "editorWidget.border": "#1f2740",
+          "editorSuggestWidget.background": "#121726",
+          "editorSuggestWidget.border": "#1f2740",
+          "editorSuggestWidget.selectedBackground": "#1b2647",
+          "editorHoverWidget.background": "#121726",
+          "editorHoverWidget.border": "#1f2740",
+          "editorGhostText.foreground": "#5b6480",
+          "editorGroupHeader.tabsBackground": "#0a0d15",
+          "editorGroupHeader.tabsBorder": "#151a28",
+          "editorGroup.border": "#151a28",
+          "tab.activeBackground": "#0e1119",
+          "tab.activeBorderTop": "#2d5bff",
+          "tab.activeForeground": "#e8ebf4",
+          "tab.inactiveBackground": "#0a0d15",
+          "tab.inactiveForeground": "#6b7491",
+          "tab.border": "#0a0d15",
+          "tab.hoverBackground": "#111626",
+          "panel.background": "#0c0f18",
+          "panel.border": "#151a28",
+          "panelTitle.activeBorder": "#2d5bff",
+          "terminal.background": "#0c0f18",
+          "statusBar.background": "#090b12",
+          "statusBar.foreground": "#8b93ab",
+          "statusBar.border": "#151a28",
+          "statusBar.noFolderBackground": "#090b12",
+          "statusBar.debuggingBackground": "#2d5bff",
+          "statusBarItem.remoteBackground": "#2d5bff",
+          "statusBarItem.remoteForeground": "#ffffff",
+          "button.background": "#2d5bff",
+          "button.hoverBackground": "#4570ff",
+          "button.foreground": "#ffffff",
+          "button.secondaryBackground": "#1b2236",
+          "button.secondaryHoverBackground": "#232c45",
+          "badge.background": "#2d5bff",
+          "badge.foreground": "#ffffff",
+          "progressBar.background": "#2d5bff",
+          "input.background": "#121726",
+          "input.border": "#1f2740",
+          "dropdown.background": "#121726",
+          "dropdown.border": "#1f2740",
+          "checkbox.background": "#121726",
+          "checkbox.border": "#1f2740",
+          "list.activeSelectionBackground": "#1b2647",
+          "list.inactiveSelectionBackground": "#151c30",
+          "list.hoverBackground": "#121828",
+          "list.focusOutline": "#2d5bff",
+          "list.highlightForeground": "#6f8dff",
+          "quickInput.background": "#0e1220",
+          "quickInputList.focusBackground": "#1b2647",
+          "commandCenter.background": "#0e1220",
+          "commandCenter.border": "#1f2740",
+          "commandCenter.activeBackground": "#141a2a",
+          "notifications.background": "#0e1220",
+          "notifications.border": "#1f2740",
+          "notificationCenterHeader.background": "#0e1220",
+          "menu.background": "#0e1220",
+          "menu.selectionBackground": "#1b2647",
+          "widget.border": "#1f2740",
+          "scrollbarSlider.background": "#2a325080",
+          "scrollbarSlider.hoverBackground": "#3a4468a0",
+          "scrollbarSlider.activeBackground": "#2d5bff80"
+        },
+        "[Dark Modern]": {
+          "focusBorder": "#2d5bff",
+          "foreground": "#c9cfe0",
+          "descriptionForeground": "#8b93ab",
+          "textLink.foreground": "#6f8dff",
+          "textLink.activeForeground": "#8aa3ff",
+          "titleBar.activeBackground": "#090b12",
+          "titleBar.inactiveBackground": "#090b12",
+          "titleBar.border": "#151a28",
+          "activityBar.background": "#090b12",
+          "activityBar.border": "#151a28",
+          "activityBar.foreground": "#e8ebf4",
+          "activityBar.inactiveForeground": "#5b6480",
+          "activityBar.activeBorder": "#2d5bff",
+          "activityBarBadge.background": "#2d5bff",
+          "sideBar.background": "#0c0f18",
+          "sideBar.border": "#151a28",
+          "sideBarSectionHeader.background": "#0c0f18",
+          "sideBarSectionHeader.border": "#151a28",
+          "sideBarTitle.foreground": "#8b93ab",
+          "editor.background": "#0e1119",
+          "editorGutter.background": "#0e1119",
+          "editor.lineHighlightBackground": "#141a2a",
+          "editor.lineHighlightBorder": "#141a2a",
+          "editor.selectionBackground": "#2d5bff40",
+          "editorCursor.foreground": "#6f8dff",
+          "editorLineNumber.foreground": "#3a4360",
+          "editorLineNumber.activeForeground": "#9aa3bd",
+          "editorIndentGuide.background1": "#1a2033",
+          "editorWidget.background": "#121726",
+          "editorWidget.border": "#1f2740",
+          "editorSuggestWidget.background": "#121726",
+          "editorSuggestWidget.border": "#1f2740",
+          "editorSuggestWidget.selectedBackground": "#1b2647",
+          "editorHoverWidget.background": "#121726",
+          "editorHoverWidget.border": "#1f2740",
+          "editorGhostText.foreground": "#5b6480",
+          "editorGroupHeader.tabsBackground": "#0a0d15",
+          "editorGroupHeader.tabsBorder": "#151a28",
+          "editorGroup.border": "#151a28",
+          "tab.activeBackground": "#0e1119",
+          "tab.activeBorderTop": "#2d5bff",
+          "tab.activeForeground": "#e8ebf4",
+          "tab.inactiveBackground": "#0a0d15",
+          "tab.inactiveForeground": "#6b7491",
+          "tab.border": "#0a0d15",
+          "tab.hoverBackground": "#111626",
+          "panel.background": "#0c0f18",
+          "panel.border": "#151a28",
+          "panelTitle.activeBorder": "#2d5bff",
+          "terminal.background": "#0c0f18",
+          "statusBar.background": "#090b12",
+          "statusBar.foreground": "#8b93ab",
+          "statusBar.border": "#151a28",
+          "statusBar.noFolderBackground": "#090b12",
+          "statusBar.debuggingBackground": "#2d5bff",
+          "statusBarItem.remoteBackground": "#2d5bff",
+          "statusBarItem.remoteForeground": "#ffffff",
+          "button.background": "#2d5bff",
+          "button.hoverBackground": "#4570ff",
+          "button.foreground": "#ffffff",
+          "button.secondaryBackground": "#1b2236",
+          "button.secondaryHoverBackground": "#232c45",
+          "badge.background": "#2d5bff",
+          "badge.foreground": "#ffffff",
+          "progressBar.background": "#2d5bff",
+          "input.background": "#121726",
+          "input.border": "#1f2740",
+          "dropdown.background": "#121726",
+          "dropdown.border": "#1f2740",
+          "checkbox.background": "#121726",
+          "checkbox.border": "#1f2740",
+          "list.activeSelectionBackground": "#1b2647",
+          "list.inactiveSelectionBackground": "#151c30",
+          "list.hoverBackground": "#121828",
+          "list.focusOutline": "#2d5bff",
+          "list.highlightForeground": "#6f8dff",
+          "quickInput.background": "#0e1220",
+          "quickInputList.focusBackground": "#1b2647",
+          "commandCenter.background": "#0e1220",
+          "commandCenter.border": "#1f2740",
+          "commandCenter.activeBackground": "#141a2a",
+          "notifications.background": "#0e1220",
+          "notifications.border": "#1f2740",
+          "notificationCenterHeader.background": "#0e1220",
+          "menu.background": "#0e1220",
+          "menu.selectionBackground": "#1b2647",
+          "widget.border": "#1f2740",
+          "scrollbarSlider.background": "#2a325080",
+          "scrollbarSlider.hoverBackground": "#3a4468a0",
+          "scrollbarSlider.activeBackground": "#2d5bff80"
+        }
+      },
+      "workbench.startupEditor": "none",
+      "workbench.tips.enabled": false,
+      "workbench.welcomePage.walkthroughs.openOnInstall": false,
+      "workbench.list.smoothScrolling": true,
+      "editor.minimap.enabled": false,
+      "editor.smoothScrolling": true,
+      "editor.cursorBlinking": "smooth",
+      "editor.cursorSmoothCaretAnimation": "on",
+      "editor.fontFamily": "'Cascadia Code', Consolas, 'Courier New', monospace",
+      "editor.fontLigatures": true,
+      "editor.fontSize": 14,
+      "editor.lineHeight": 22,
+      "editor.padding.top": 10,
+      "editor.renderLineHighlight": "all",
+      "editor.guides.bracketPairs": "active",
+      "editor.bracketPairColorization.enabled": true,
+      "window.commandCenter": true,
+      "terminal.integrated.defaultProfile.windows": "Git Bash",
+      "terminal.integrated.cursorStyle": "line",
+      "terminal.integrated.smoothScrolling": true
     }
   },
   "scripts": {
