@@ -24,6 +24,75 @@ test('a reply that only plans a change is detected; a finished summary is not', 
 import { formatCommandResult, planEdit, stripLineNumbers } from '../toolSpecs';
 import { LoopGuard } from '../loopGuard';
 import { resolveShell } from '../shell';
+import { DocsLookup, extractSection, htmlToText, pickDocSet, rank } from '../docs';
+
+const CATALOG = [
+  { name: 'Python', slug: 'python~3.12', release: '3.12.9' },
+  { name: 'Python', slug: 'python~3.13', release: '3.13.8' },
+  { name: 'Python', slug: 'python~2.7', release: '2.7.17' },
+  { name: 'JavaScript', slug: 'javascript' },
+  { name: 'Node.js', slug: 'node', release: '26.3.1' },
+  { name: 'Node.js', slug: 'node~22_lts', release: '22.20.0' },
+  { name: 'Web APIs', slug: 'dom' },
+];
+
+test('doc sets: aliases, newest version by default, explicit versions', () => {
+  assert.equal((pickDocSet(CATALOG, 'python') as any).slug, 'python~3.13');
+  assert.equal((pickDocSet(CATALOG, 'Python 3.12') as any).slug, 'python~3.12');
+  assert.equal((pickDocSet(CATALOG, 'py') as any).slug, 'python~3.13');
+  assert.equal((pickDocSet(CATALOG, 'js') as any).slug, 'javascript');
+  assert.equal((pickDocSet(CATALOG, 'node') as any).slug, 'node');
+  assert.equal((pickDocSet(CATALOG, 'dom') as any).slug, 'dom');
+  assert.match(pickDocSet(CATALOG, 'cobol') as string, /^Error: no documentation named "cobol"/);
+});
+
+test('doc search ranks exact and method-name matches first', () => {
+  const entries = [
+    { name: 'str.join()', path: 'library/stdtypes#str.join', type: 'Built-in Types' },
+    { name: 'os.path.join()', path: 'library/os.path#os.path.join', type: 'Files' },
+    { name: 'shlex.join()', path: 'library/shlex#shlex.join', type: 'Parsing' },
+    { name: 'threading.Thread.join()', path: 'library/threading#threading.Thread.join', type: 'Concurrency' },
+  ];
+  assert.equal(rank(entries, 'str.join')[0].name, 'str.join()');
+  assert.equal(rank(entries, 'os.path.join()')[0].name, 'os.path.join()');
+  assert.equal(rank(entries, 'join').length, 4);
+  const js = [{ name: 'Map', path: 'global_objects/map', type: 'Map' }, { name: 'Array.map', path: 'global_objects/array/map', type: 'Array' }];
+  assert.equal(rank(js, 'Array.prototype.map()')[0].name, 'Array.map');
+  assert.equal(rank(entries, 'nothing here').length, 0);
+});
+
+test('a doc page is cut down to the requested entry and turned into text', () => {
+  const html =
+    '<h1>Built-in Types</h1><dl class="py method"><dt class="sig" id="str.isupper"><code>str.isupper()</code></dt><dd><p>Return True if upper.</p></dd></dl>' +
+    '<dl class="py method"><dt class="sig" id="str.join"><code>str.join(iterable)</code></dt><dd><p>Return a string which is the concatenation of the strings in <em>iterable</em>.</p>' +
+    '<pre>&gt;&gt;&gt; ", ".join(["a", "b"])\n\'a, b\'</pre></dd></dl><dl class="py method"><dt class="sig" id="str.ljust"><code>str.ljust()</code></dt><dd><p>Pad.</p></dd></dl>';
+  const s = extractSection(html, 'str.join', 6000);
+  assert.match(s, /`str\.join\(iterable\)`/);
+  assert.match(s, /concatenation of the strings/);
+  assert.match(s, /```\n>>> ", "\.join\(\["a", "b"\]\)/);
+  assert.doesNotMatch(s, /isupper|ljust/);
+  assert.equal(htmlToText('<p>a &amp; b &lt;c&gt;</p>'), 'a & b <c>');
+});
+
+test('docs lookup downloads each index and page once, then uses the cache', async () => {
+  const dir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'perdev-docs-'));
+  const fetched: string[] = [];
+  const fake = async (url: string) => {
+    fetched.push(url);
+    if (url.endsWith('docs.json')) return JSON.stringify(CATALOG);
+    if (url.endsWith('index.json')) return JSON.stringify({ entries: [{ name: 'json.loads()', path: 'library/json#json.loads', type: 'Internet Data' }] });
+    return '<dl><dt id="json.loads">json.loads(s)</dt><dd><p>Deserialize s to a Python object.</p></dd></dl>';
+  };
+  const docs = new DocsLookup(dir, fake);
+  const first = await docs.lookup({ docs: 'python', query: 'json.loads' });
+  assert.match(first, /Python 3\.13\.8 documentation, best match: json\.loads\(\)/);
+  assert.match(first, /Deserialize s to a Python object/);
+  const second = await docs.lookup({ docs: 'python', query: 'json.loads' });
+  assert.equal(second, first);
+  assert.equal(fetched.length, 3); // catalog, index, page: each once
+  assert.match(await docs.lookup({ docs: '', query: 'x' }), /^Error: say which documentation/);
+  fsSync.rmSync(dir, { recursive: true, force: true });
+});
 
 test('repeated identical tool calls are blocked, then the run is stopped', () => {
   const g = new LoopGuard();

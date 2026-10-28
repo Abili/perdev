@@ -93,6 +93,23 @@ export const TOOL_SPECS: ToolSpec[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'lookup_docs',
+      description:
+        "Look something up in a language's or library's official documentation (via DevDocs). Use it when unsure how a function, class or API works instead of guessing. Returns the best matching section plus other matching pages.",
+      parameters: {
+        type: 'object',
+        properties: {
+          docs: { type: 'string', description: 'Which documentation, e.g. python, javascript, typescript, node, react, html, css, dom, rust, go, django, flask, numpy, pandas. Add a version if it matters: "python 3.12".' },
+          query: { type: 'string', description: 'What to look up, e.g. "str.join", "json.loads", "Array.prototype.map", "useEffect"' },
+          page: { type: 'string', description: 'Optional: a page from an earlier lookup_docs result, to read it instead of searching' },
+        },
+        required: ['docs'],
+      },
+    },
+  },
 ];
 
 // Small models sometimes copy read_file's "   12  " line-number prefixes into

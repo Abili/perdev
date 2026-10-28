@@ -150,6 +150,11 @@
           "default": "auto",
           "description": "Shell for the agent's commands. auto: Git Bash on Windows if installed (models know bash best), otherwise PowerShell."
         },
+        "perdev.docs.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Let the agent look things up in official documentation (via devdocs.io). Only small indexes and single pages are downloaded, and they're cached next to your chats."
+        },
         "perdev.agent.approveCommands": {
           "type": "boolean",
           "default": true,

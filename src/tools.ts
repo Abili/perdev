@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import { exec } from 'child_process';
 import { TOOL_SPECS, formatCommandResult, planEdit, stripLineNumbers, truncate } from './toolSpecs';
+import { DocsLookup } from './docs';
 
 export { TOOL_SPECS };
 
@@ -15,6 +16,7 @@ export interface ToolContext {
   approveEdits: boolean;
   signal: AbortSignal;
   shellPath?: string; // run_command's shell; default is the OS shell
+  docs?: DocsLookup; // lookup_docs; undefined when docs lookup is turned off
 }
 
 const EXCLUDE = '**/{node_modules,.git,out,dist,build,.venv,__pycache__}/**';
@@ -54,6 +56,9 @@ export async function runTool(name: string, rawArgs: string, ctx: ToolContext): 
         return await search(ctx, args);
       case 'run_command':
         return await runCommand(ctx, args);
+      case 'lookup_docs':
+        if (!ctx.docs) return 'Error: documentation lookup is turned off (perdev.docs.enabled).';
+        return truncate(await ctx.docs.lookup(args));
       default:
         return `Error: unknown tool "${name}". Available: ${TOOL_SPECS.map((t) => t.function.name).join(', ')}`;
     }

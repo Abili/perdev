@@ -7,6 +7,7 @@ import { conversationSize, trimContext } from './context';
 import { carryOverSection, HANDOFF_PROMPT, looksLikeAskingUserToAct, looksLikeUnfinishedPlan, systemPrompt } from './prompt';
 import { LoopGuard } from './loopGuard';
 import { resolveShell, Shell } from './shell';
+import { DocsLookup } from './docs';
 
 export type AgentEvent =
   | { type: 'text'; delta: string }
@@ -67,7 +68,7 @@ export class Agent {
   async run(
     userText: string,
     cfg: LlmConfig,
-    opts: { maxSteps: number; maxContextChars: number; approveCommands: boolean; approveEdits: boolean },
+    opts: { maxSteps: number; maxContextChars: number; approveCommands: boolean; approveEdits: boolean; docs?: DocsLookup },
     emit: (e: AgentEvent) => void,
   ): Promise<'done' | 'stopped' | 'error' | 'max_steps'> {
     this.abort = new AbortController();
@@ -79,6 +80,7 @@ export class Agent {
       approveEdits: opts.approveEdits,
       signal,
       shellPath: this.shell.path,
+      docs: opts.docs,
     };
 
     let outcome: 'done' | 'stopped' | 'error' | 'max_steps' = 'max_steps';
@@ -102,7 +104,10 @@ export class Agent {
           // if that fails, drop the reply and re-ask a little less deterministically.
           const asking = looksLikeAskingUserToAct(result.content, TOOL_NAMES);
           const midTaskStall = toolsUsed > 0 && (!result.content.trim() || looksLikeUnfinishedPlan(result.content));
-          if (retries < 2 && (midTaskStall || asking)) {
+          // At the first step only a short announcement counts ("I'll read its contents
+          // first. Please wait..."): a real answer that mentions a next step is longer.
+          const firstStepAnnouncement = toolsUsed === 0 && result.content.trim().length < 400 && looksLikeUnfinishedPlan(result.content);
+          if (retries < 2 && (midTaskStall || asking || firstStepAnnouncement)) {
             retries++;
             const keep = asking ? '' : result.content;
             const call = await continueAsToolCall(cfg, this.messages, TOOL_SPECS, keep, signal);

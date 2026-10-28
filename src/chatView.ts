@@ -7,6 +7,8 @@ import { TrainingLogger } from './logger';
 import { ChatSession, newSessionId, SessionStore, titleFrom } from './sessions';
 import { resolveShell, ShellPreference } from './shell';
 import { workspaceOverview } from './prompt';
+import { DocsLookup } from './docs';
+import * as path from 'path';
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   static readonly viewId = 'perdev.chat';
@@ -77,6 +79,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     return this.agent;
   }
 
+  // One cache for downloaded doc indexes and pages, next to the chats.
+  private docsLookup?: DocsLookup;
+  private docs(): DocsLookup {
+    this.docsLookup ??= new DocsLookup(path.join(this.logger.dir, 'docs'));
+    return this.docsLookup;
+  }
+
   private postUsage() {
     const { maxContextChars, branchAt } = this.settings();
     const ratio = this.agent ? this.agent.usage(maxContextChars) : 0;
@@ -109,6 +118,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         maxContextChars,
         approveCommands: c.get<boolean>('agent.approveCommands', true),
         approveEdits: c.get<boolean>('agent.approveEdits', false),
+        docs: c.get<boolean>('docs.enabled', true) ? this.docs() : undefined,
       },
       (event: AgentEvent) => {
         // Save after every step so a long or stuck run is never lost.

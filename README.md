@@ -3,6 +3,7 @@
 A free, local-first AI code editor that runs on **your own model**. PerDev is its own app, built on the open-source VS Code core (via VSCodium: no telemetry, Open VSX extensions), with its AI built in.
 
 - **Agent chat** (sidebar): reads, searches and edits files and runs commands to finish real tasks.
+- **Official docs lookup**: the agent can look things up in the official documentation of ~800 languages and libraries (Python, JavaScript/MDN, TypeScript, Node.js, React, Rust, Go, Django, NumPy...) through [DevDocs](https://devdocs.io). Only a small search index (once per doc set) and single pages are downloaded, and both are cached, so it stays usable on a slow connection. Turn it off with `perdev.docs.enabled`.
 - **Tab autocomplete**: fill-in-the-middle ghost text from a small, fast local model.
 - **Branching chats**: a context meter shows how full the chat is. When it gets long, PerDev offers to *continue in a new chat*: the model writes a handoff note (goal, what's done, key facts, next steps), and the new chat starts with it and links back to the parent. Chats are saved, and you can reopen any of them (history button).
 - **Training-data logging**: every agent session and every accepted or rejected completion is saved as JSONL, ready for fine-tuning your own model later. Nothing leaves your machine.
