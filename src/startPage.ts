@@ -132,8 +132,9 @@ export async function resumePendingProject(
   if (pending.command) {
     const term = vscode.window.createTerminal({ name: 'PerDev setup', cwd: root, shellPath });
     term.show();
-    // Windows PowerShell 5.1 has no &&; cmd does.
-    term.sendText(shellKind === 'powershell' ? `cmd /c "${pending.command.replace(/"/g, '\\"')}"` : pending.command);
+    // Windows PowerShell 5.1 has no && or ./gradlew: run it through cmd with gradlew.bat.
+    const viaCmd = () => `cmd /c "${pending.command!.replace(/\.\/gradlew\b/g, 'gradlew.bat').replace(/"/g, '\\"')}"`;
+    term.sendText(shellKind === 'powershell' ? viaCmd() : pending.command);
   }
   await vscode.commands.executeCommand('workbench.view.extension.perdev');
   const ask = pending.description ? `${type.agentPrompt}\n\n${pending.description}` : `${type.agentPrompt}\n\n(Describe what the app should do.)`;

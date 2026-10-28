@@ -4,7 +4,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
-import { androidProjectFiles, androidWrapperCommand } from './androidTemplate';
+import { androidProjectFiles, androidSetupCommand } from './androidTemplate';
 
 export type Category = 'mobile' | 'web' | 'backend';
 
@@ -88,7 +88,7 @@ export const PROJECT_TYPES: ProjectType[] = [
       kind: 'files',
       files: (n) => androidProjectFiles(n),
       // gradlew comes from a Gradle already on this PC, offline.
-      command: () => androidWrapperCommand(),
+      command: () => androidSetupCommand(),
       downloads: 'nothing if Android builds have run on this PC before (the build tools are cached); otherwise a few hundred MB on the first build',
     },
     agentPrompt:

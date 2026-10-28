@@ -27,8 +27,51 @@ import { resolveShell } from '../shell';
 import { DocsLookup, extractSection, htmlToText, pickDocSet, rank } from '../docs';
 import { McpClient, resultText } from '../mcp';
 import { describeActivity, partialField } from '../activity';
-import { androidPackage, androidProjectFiles } from '../androidTemplate';
+import { androidPackage, androidProjectFiles, chooseAndroidVersions } from '../androidTemplate';
+
+test('Android versions come from the local Gradle cache when available', () => {
+  const home = fsSync.mkdtempSync(path.join(os.tmpdir(), 'perdev-gradle-'));
+  const cache = path.join(home, 'caches', 'modules-2', 'files-2.1');
+  // A PC whose cache has an older BOM and core-ktx than the defaults.
+  fsSync.mkdirSync(path.join(cache, 'androidx.compose', 'compose-bom', '2024.12.01'), { recursive: true });
+  fsSync.mkdirSync(path.join(cache, 'androidx.core', 'core-ktx', '1.16.0'), { recursive: true });
+  const c = chooseAndroidVersions({ GRADLE_USER_HOME: home, LOCALAPPDATA: home });
+  assert.equal(c.versions.composeBom, '2024.12.01');
+  assert.equal(c.versions.coreKtx, '1.16.0');
+  assert.ok(c.cached.includes('composeBom 2024.12.01'));
+  assert.ok(c.missing.some((m) => m.startsWith('agp ')));
+  // Nothing cached at all: the defaults.
+  const empty = chooseAndroidVersions({ GRADLE_USER_HOME: path.join(home, 'none') });
+  assert.equal(empty.versions.agp, '9.1.1');
+  assert.equal(empty.cached.length, 0);
+  fsSync.rmSync(home, { recursive: true, force: true });
+});
 import { refusedCommand } from '../safety';
+import { createAvd, parseAdbDevices } from '../devices';
+
+test('devices: adb output is read into phones and emulators', () => {
+  const out = 'List of devices attached\nR5CY72BFREA            device usb:1-1 product:pa3qxxx model:SM_S938B device:pa3q transport_id:1\nemulator-5554          device product:sdk_gphone64_x86_64 model:sdk_gphone64_x86_64 transport_id:2\nABC123 unauthorized usb:1-2 transport_id:3\n\n';
+  const d = parseAdbDevices(out);
+  assert.deepEqual(d.map((x) => [x.serial, x.kind, x.state, x.model]), [
+    ['R5CY72BFREA', 'usb', 'device', 'SM S938B'],
+    ['emulator-5554', 'emulator', 'device', 'sdk gphone64 x86 64'],
+    ['ABC123', 'usb', 'unauthorized', 'ABC123'],
+  ]);
+});
+
+test('devices: an emulator is created from an installed system image, drawn in software', () => {
+  const home = fsSync.mkdtempSync(path.join(os.tmpdir(), 'perdev-avd-'));
+  const prev = process.env.ANDROID_AVD_HOME;
+  delete process.env.ANDROID_AVD_HOME;
+  createAvd({ api: 'android-36', tag: 'google_apis_playstore', abi: 'x86_64', dir: '' }, 'Test_Phone', home);
+  if (prev !== undefined) process.env.ANDROID_AVD_HOME = prev;
+  const cfg = fsSync.readFileSync(path.join(home, '.android', 'avd', 'Test_Phone.avd', 'config.ini'), 'utf8');
+  assert.match(cfg, /image\.sysdir\.1=system-images[\\/]android-36[\\/]google_apis_playstore[\\/]x86_64[\\/]/);
+  assert.match(cfg, /hw\.gpu\.mode=swiftshader_indirect/);
+  assert.match(cfg, /hw\.accelerometer=yes/); // shake detection needs it
+  assert.match(fsSync.readFileSync(path.join(home, '.android', 'avd', 'Test_Phone.ini'), 'utf8'), /target=android-36/);
+  fsSync.rmSync(home, { recursive: true, force: true });
+});
 
 test('safety net: dangerous commands are refused in any mode, normal ones run', () => {
   const root = 'E:\\codingprojects\\notes';

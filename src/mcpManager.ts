@@ -51,8 +51,10 @@ export class McpManager {
     root: string,
     servers: Record<string, McpServerConfig & { tools?: string[]; readOnlyTools?: string[]; observeAfter?: string[] }>,
     userText: string,
+    // The phone or emulator chosen in the status bar: used when a call doesn't name one.
+    device?: { serial: string; label: string },
   ): Promise<ExtraTools | undefined> {
-    const byTool = new Map<string, { client: McpClient; approve: boolean; observe: boolean; readOnly: boolean }>();
+    const byTool = new Map<string, { client: McpClient; approve: boolean; observe: boolean; readOnly: boolean; takesDevice: boolean }>();
     const specs: ToolSpec[] = [];
     const noteParts: string[] = [];
     for (const [name, cfg] of Object.entries(servers ?? {})) {
@@ -81,11 +83,19 @@ export class McpManager {
           approve: cfg.approve !== false && !readOnly.includes(t.name),
           observe: canObserve && observeAfter.includes(t.name),
           readOnly: readOnly.includes(t.name),
+          takesDevice: !!(t.inputSchema as any)?.properties?.device,
         });
       }
       specs.push(...toToolSpecs(offered));
       if (client.instructions) noteParts.push(client.instructions.trim());
-      if (offered.some((t) => t.name === 'ui_tree')) noteParts.push(ANDROID_NOTES);
+      if (offered.some((t) => t.name === 'ui_tree')) {
+        noteParts.push(ANDROID_NOTES);
+        noteParts.push(
+          device
+            ? `Test on: ${device.label} (${device.serial}). It is used automatically; you don't need to pass device.`
+            : 'No test device is chosen yet. Use list_devices; if none is connected, tell the user to pick one with the device button in the status bar.',
+        );
+      }
     }
     if (specs.length === 0) return undefined;
     return {
@@ -102,6 +112,7 @@ export class McpManager {
         } catch {
           return { text: `arguments were not valid JSON: ${rawArgs}`, images: [], isError: true };
         }
+        if (device && entry.takesDevice && args.device === undefined) args.device = device.serial;
         if (!entry.client.running) await entry.client.start();
         const result = await entry.client.callTool(n, args);
         if (!entry.observe || result.isError) return result;

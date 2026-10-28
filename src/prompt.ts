@@ -84,7 +84,11 @@ How to work:
 - Make focused changes with edit_file. Always read a file before editing it, and copy old_str exactly.
 - Use write_file only for new files or full rewrites.
 - When asked to build or change something, create and edit the actual files with write_file and edit_file, one file per call. Never paste file contents into your reply for the user to copy.
-- After changing code, verify it: run the tests, the build or the program with run_command when possible, and fix what fails.
+- After building or changing something, test it before saying you are done, and fix what fails:
+  - run the tests or the build with run_command;
+  - for a web app or site, start it with start_server (or use the file directly) and check it with open_in_browser;
+  - for an Android app, build, install and launch it on the test device, then check the screen with ui_tree.
+  In your final reply, say what you checked and what you saw.
 - When unsure how a function, class or API works, check the official documentation with lookup_docs instead of guessing.
 - A command that prints nothing has still run. Don't repeat a call whose result you already have; use the result.
 - Paths are relative to the workspace root.

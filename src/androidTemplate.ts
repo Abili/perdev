@@ -19,6 +19,55 @@ export const ANDROID_VERSIONS = {
   minSdk: 24,
 };
 
+type AndroidVersions = typeof ANDROID_VERSIONS;
+
+// Versions known to work with this template (AGP 9 with built-in Kotlin),
+// preferred first. PerDev picks the first one already in the local Gradle cache,
+// so a new project builds from what the PC has instead of downloading
+// hundreds of MB.
+const CANDIDATES: Record<string, { group: string; artifact: string; versions: string[]; key: keyof AndroidVersions }> = {
+  agp: { group: 'com.android.tools.build', artifact: 'gradle', versions: ['9.1.1', '9.1.0', '9.0.1', '9.0.0'], key: 'agp' },
+  composeBom: { group: 'androidx.compose', artifact: 'compose-bom', versions: ['2024.09.00', '2024.12.01', '2025.01.01', '2026.01.01', '2026.09.00'], key: 'composeBom' },
+  coreKtx: { group: 'androidx.core', artifact: 'core-ktx', versions: ['1.18.0', '1.17.0', '1.16.0', '1.15.0'], key: 'coreKtx' },
+  lifecycle: { group: 'androidx.lifecycle', artifact: 'lifecycle-runtime-ktx', versions: ['2.10.0', '2.9.4', '2.8.7'], key: 'lifecycleRuntimeKtx' },
+  activity: { group: 'androidx.activity', artifact: 'activity-compose', versions: ['1.13.0', '1.12.4', '1.11.0', '1.10.1', '1.9.3'], key: 'activityCompose' },
+};
+
+export function gradleCacheDir(env: NodeJS.ProcessEnv = process.env): string {
+  const home = env.GRADLE_USER_HOME || path.join(env.USERPROFILE || env.HOME || '', '.gradle');
+  return path.join(home, 'caches', 'modules-2', 'files-2.1');
+}
+
+export interface AndroidChoice {
+  versions: AndroidVersions;
+  // Components found in the cache vs. ones that will download on the first build.
+  cached: string[];
+  missing: string[];
+}
+
+// Picks versions from what this PC already has (Gradle cache, SDK platforms).
+export function chooseAndroidVersions(env: NodeJS.ProcessEnv = process.env): AndroidChoice {
+  const cache = gradleCacheDir(env);
+  const versions: AndroidVersions = { ...ANDROID_VERSIONS };
+  const cached: string[] = [];
+  const missing: string[] = [];
+  for (const [label, c] of Object.entries(CANDIDATES)) {
+    const have = c.versions.find((v) => fs.existsSync(path.join(cache, c.group, c.artifact, v)));
+    (versions as any)[c.key] = have ?? c.versions[0];
+    (have ? cached : missing).push(`${label} ${have ?? c.versions[0]}`);
+  }
+  const composePlugin = path.join(cache, 'org.jetbrains.kotlin.plugin.compose', 'org.jetbrains.kotlin.plugin.compose.gradle.plugin', versions.kotlin);
+  (fs.existsSync(composePlugin) ? cached : missing).push(`kotlin-compose ${versions.kotlin}`);
+  // core-ktx 1.17+ needs compileSdk 36; fall back to 35 only when 36 isn't installed.
+  const sdk = androidSdkDir(env);
+  const platforms = sdk && fs.existsSync(path.join(sdk, 'platforms')) ? fs.readdirSync(path.join(sdk, 'platforms')) : [];
+  if (platforms.length && !platforms.includes('android-36') && platforms.includes('android-35')) {
+    versions.compileSdk = 35;
+    versions.coreKtx = '1.15.0';
+  }
+  return { versions, cached, missing };
+}
+
 // "Sticky Notes!" -> com.example.stickynotes
 export function androidPackage(name: string): string {
   const part = name.toLowerCase().replace(/[^a-z0-9]+/g, '');
@@ -54,12 +103,26 @@ export function findLocalGradle(env: NodeJS.ProcessEnv = process.env): { bin: st
     .sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }))[0];
 }
 
-// Run in the new project's folder (in the visible setup terminal).
-export function androidWrapperCommand(): string | undefined {
+// Run in the new project's folder (in the visible setup terminal): create the
+// Gradle wrapper offline with a Gradle already on the PC, then build, offline
+// first; only if something is genuinely missing does it fall back to online.
+export function androidSetupCommand(): string | undefined {
   const g = findLocalGradle();
-  if (!g) return undefined;
+  const choice = chooseAndroidVersions();
+  const say = (s: string) => `echo "${s.replace(/"/g, "'")}"`;
+  const steps = [
+    say(`PerDev: Android build tools from this PC's cache: ${choice.cached.join(', ') || 'none'}`),
+    choice.missing.length ? say(`PerDev: not cached yet (downloaded on the first build): ${choice.missing.join(', ')}`) : say('PerDev: everything needed is already cached'),
+  ];
+  if (!g) {
+    steps.push(say('PerDev: no Gradle 9 found on this PC. Open the project once in Android Studio to create gradlew, or install Gradle 9.'));
+    return steps.join(' && ');
+  }
   // --offline: never download; the distribution named in the wrapper is already on disk.
-  return `"${g.bin.replace(/\\/g, '/')}" wrapper --gradle-version ${g.version} --distribution-type bin --offline`;
+  steps.push(`"${g.bin.replace(/\\/g, '/')}" wrapper --gradle-version ${g.version} --distribution-type bin --offline`);
+  steps.push(say('PerDev: first build, offline first...'));
+  steps.push(`(./gradlew assembleDebug --offline || (${say('PerDev: some pieces are missing; fetching only those...')} && ./gradlew assembleDebug))`);
+  return steps.join(' && ');
 }
 
 // For a .properties file: C:\Users\me\Sdk -> C\:\\Users\\me\\Sdk
@@ -67,8 +130,7 @@ function propertiesPath(p: string): string {
   return p.replace(/\\/g, '\\\\').replace(/:/g, '\\:');
 }
 
-export function androidProjectFiles(name: string): Record<string, string> {
-  const v = ANDROID_VERSIONS;
+export function androidProjectFiles(name: string, v: AndroidVersions = chooseAndroidVersions().versions): Record<string, string> {
   const pkg = androidPackage(name);
   const label = name.replace(/[<>&"$\\]/g, '');
   const sdk = androidSdkDir();

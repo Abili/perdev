@@ -44,6 +44,11 @@
         "icon": "$(rocket)"
       },
       {
+        "command": "perdev.selectDevice",
+        "title": "PerDev: Choose Test Device (phone or emulator)",
+        "icon": "$(device-mobile)"
+      },
+      {
         "command": "perdev.newChat",
         "title": "PerDev: New Chat",
         "icon": "$(add)"

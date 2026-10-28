@@ -96,6 +96,35 @@ export const TOOL_SPECS: ToolSpec[] = [
   {
     type: 'function',
     function: {
+      name: 'start_server',
+      description:
+        'Start a long-running dev server in the background (e.g. "npm run dev", "python -m http.server 8000") and return its address once it answers. Use run_command for commands that finish.',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: { type: 'string' },
+          url: { type: 'string', description: 'Optional: the address it serves, e.g. http://localhost:5173 (found automatically otherwise)' },
+        },
+        required: ['command'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'open_in_browser',
+      description:
+        'Open a page of this project in a browser to test it: returns the title, visible text, console errors and failed requests, and shows the page to the user. Takes a localhost address or a file in the project (e.g. index.html).',
+      parameters: {
+        type: 'object',
+        properties: { url: { type: 'string', description: 'e.g. http://localhost:5173 or index.html' } },
+        required: ['url'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'update_plan',
       description:
         'Show the user your plan as a checklist. For a task with several steps, call it first with all the steps, then again with the full list whenever a step starts or finishes.',

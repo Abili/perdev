@@ -4,10 +4,11 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
-import { exec } from 'child_process';
+import { ChildProcess, exec, spawn } from 'child_process';
 import { TOOL_SPECS, formatCommandResult, planEdit, stripLineNumbers, truncate } from './toolSpecs';
 import { DocsLookup } from './docs';
 import { refusedCommand } from './safety';
+import { describeCheck, HeadlessBrowser } from './browser';
 
 export { TOOL_SPECS };
 
@@ -18,6 +19,69 @@ export interface ToolContext {
   signal: AbortSignal;
   shellPath?: string; // run_command's shell; default is the OS shell
   docs?: DocsLookup; // lookup_docs; undefined when docs lookup is turned off
+  emitImage?: (data: string, mimeType: string) => void; // e.g. a page screenshot, for the user
+}
+
+// ---- Dev servers and the test browser --------------------------------------
+
+const servers: ChildProcess[] = [];
+let browser: HeadlessBrowser | undefined;
+
+// Stops dev servers and the test browser (new chat, PerDev closing).
+export function stopBackground() {
+  for (const p of servers.splice(0)) p.kill();
+  browser?.dispose();
+  browser = undefined;
+}
+
+const LOCAL_URL = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\]):\d+[^\s"'\x1b]*/i;
+
+async function startServer(ctx: ToolContext, a: { command: string; url?: string }) {
+  const refused = refusedCommand(a.command ?? '', ctx.root);
+  if (refused) return `Error: ${refused}`;
+  if (ctx.approveCommands && !(await confirm('PerDev wants to start a server', a.command))) {
+    return 'Error: the user declined to start this server.';
+  }
+  const proc = spawn(a.command, { cwd: ctx.root, shell: ctx.shellPath ?? true, windowsHide: true });
+  servers.push(proc);
+  let output = '';
+  const onData = (d: Buffer) => (output = (output + d.toString()).slice(-6000));
+  proc.stdout?.on('data', onData);
+  proc.stderr?.on('data', onData);
+  const deadline = Date.now() + 90_000;
+  while (Date.now() < deadline && !ctx.signal.aborted) {
+    if (proc.exitCode !== null) return truncate(`Error: the server stopped (exit code ${proc.exitCode}).\n${output}`);
+    const url = (a.url || output.match(LOCAL_URL)?.[0] || '').replace('0.0.0.0', 'localhost');
+    if (url) {
+      try {
+        await fetch(url, { signal: AbortSignal.timeout(2000) });
+        return truncate(`Server running at ${url} (it keeps running in the background).\nOutput so far:\n${output.trim() || '(none)'}`);
+      } catch {
+        // not answering yet
+      }
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  return truncate(`Error: no answering address within 90 s. Pass url if the server uses one it doesn't print.\nOutput so far:\n${output}`);
+}
+
+async function openInBrowser(ctx: ToolContext, a: { url: string }) {
+  let url = (a.url ?? '').trim();
+  if (!/^https?:\/\//i.test(url)) {
+    // A file in the project, e.g. index.html.
+    const full = resolveInRoot(ctx.root, url.replace(/^file:\/\/\/?/i, ''));
+    url = vscode.Uri.file(full).toString();
+  } else if (!LOCAL_URL.test(url)) {
+    return 'Error: open_in_browser only opens this project\'s own pages (localhost or a file in the project).';
+  }
+  browser ??= new HeadlessBrowser();
+  const c = await browser.check(url);
+  if (c.screenshot) ctx.emitImage?.(c.screenshot, 'image/jpeg');
+  // Show the user the live page too, in PerDev's built-in browser tab.
+  if (/^https?:/i.test(c.url) && typeof vscode.commands?.executeCommand === 'function') {
+    void Promise.resolve(vscode.commands.executeCommand('simpleBrowser.show', c.url)).catch(() => {});
+  }
+  return truncate(describeCheck(c));
 }
 
 const EXCLUDE = '**/{node_modules,.git,out,dist,build,.venv,__pycache__}/**';
@@ -57,6 +121,10 @@ export async function runTool(name: string, rawArgs: string, ctx: ToolContext): 
         return await search(ctx, args);
       case 'run_command':
         return await runCommand(ctx, args);
+      case 'start_server':
+        return await startServer(ctx, args);
+      case 'open_in_browser':
+        return await openInBrowser(ctx, args);
       case 'update_plan': {
         // The chat renders the checklist from this call's arguments.
         const steps = Array.isArray(args.steps) ? args.steps : [];

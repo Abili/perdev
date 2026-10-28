@@ -9,6 +9,8 @@ import { resolveShell, ShellPreference } from './shell';
 import { workspaceOverview } from './prompt';
 import { DocsLookup } from './docs';
 import { McpManager } from './mcpManager';
+import { stopBackground } from './tools';
+import { DevicePicker } from './devicePicker';
 import { describeActivity } from './activity';
 import * as path from 'path';
 
@@ -22,6 +24,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     private readonly logger: TrainingLogger,
     private readonly store: SessionStore,
     private readonly mcp: McpManager,
+    private readonly devices?: DevicePicker,
   ) {}
 
   resolveWebviewView(view: vscode.WebviewView) {
@@ -51,6 +54,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   newChat() {
+    stopBackground();
     this.agent?.stop();
     this.agent?.reset();
     this.session = blankSession();
@@ -132,7 +136,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     await waitForModel(cfg.baseUrl, emitStatus, agent);
     const servers = c.get<Record<string, unknown>>('mcpServers', {});
     if (Object.keys(servers).length) emitStatus('Getting tools ready…');
-    const extra = await this.mcp.toolsFor(root, servers as any, text);
+    const extra = await this.mcp.toolsFor(root, servers as any, text, await this.devices?.selected());
     const outcome = await agent.run(
       withEditorContext(text) + overview,
       cfg,

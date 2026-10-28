@@ -115,6 +115,7 @@ ${extra.notes}` : '');
       signal,
       shellPath: this.shell.path,
       docs: opts.docs,
+      emitImage: (data, mimeType) => emit({ type: 'image', data, mimeType }),
     };
 
     let outcome: 'done' | 'stopped' | 'error' | 'max_steps' = 'max_steps';

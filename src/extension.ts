@@ -6,6 +6,8 @@ import { TrainingLogger } from './logger';
 import { LocalServers } from './server';
 import { SessionStore } from './sessions';
 import { McpManager } from './mcpManager';
+import { DevicePicker } from './devicePicker';
+import { stopBackground } from './tools';
 import { resumePendingProject, StartPage } from './startPage';
 import { resolveShell, ShellPreference } from './shell';
 
@@ -18,7 +20,9 @@ export function activate(context: vscode.ExtensionContext) {
   const toolsLog = vscode.window.createOutputChannel('PerDev Tools');
   const mcp = new McpManager((line) => toolsLog.appendLine(line));
   context.subscriptions.push(toolsLog, { dispose: () => mcp.dispose() });
-  const chat = new ChatViewProvider(logger, new SessionStore(() => logger.dir), mcp);
+  const devices = new DevicePicker(context);
+  context.subscriptions.push(devices);
+  const chat = new ChatViewProvider(logger, new SessionStore(() => logger.dir), mcp, devices);
   const autocomplete = new AutocompleteProvider(logger);
 
   context.subscriptions.push(
@@ -65,4 +69,6 @@ export function activate(context: vscode.ExtensionContext) {
   }
 }
 
-export function deactivate() {}
+export function deactivate() {
+  stopBackground();
+}
