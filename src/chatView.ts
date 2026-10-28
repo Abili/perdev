@@ -48,6 +48,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'mode', mode });
   }
 
+  focusInput() {
+    this.post({ type: 'focus' });
+  }
+
   // Put text in the chat box (e.g. a new project's first request), ready to send.
   prefill(text: string) {
     this.post({ type: 'prefill', text });
@@ -499,6 +503,7 @@ function html(n: string) {
   }
 
   window.addEventListener('message', ({ data }) => {
+    if (data.type === 'focus') { input.focus(); return; }
     if (data.type === 'prefill') { input.value = data.text; input.dispatchEvent(new Event('input')); input.focus(); return; }
     if (data.type === 'clear') { log.innerHTML = '<div class="empty" id="empty">New chat. What should we build?</div>'; current = null; dismissed = false; planEl = null; return; }
     if (data.type === 'usage') { showUsage(data); return; }

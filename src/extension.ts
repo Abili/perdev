@@ -61,12 +61,26 @@ export function activate(context: vscode.ExtensionContext) {
     // A project just created from the start page: run its setup and queue the first request.
     const shell = resolveShell(vscode.workspace.getConfiguration('perdev').get<ShellPreference>('agent.shell', 'auto'));
     void resumePendingProject(context, (text) => chat.prefill(text), shell.kind === 'bash' ? shell.path : undefined, shell.kind === 'bash' ? 'bash' : 'powershell');
-    // First launch: open the agent panel so people see PerDev right away.
-    if (!context.globalState.get<boolean>('perdev.panelShown')) {
-      vscode.commands.executeCommand('workbench.view.extension.perdev');
-      context.globalState.update('perdev.panelShown', true);
+    // Open the agent chat (right-hand sidebar) whenever a project opens, like other AI editors.
+    if (vscode.workspace.getConfiguration('perdev').get<boolean>('chat.openOnStartup', true)) {
+      void vscode.commands.executeCommand('workbench.view.extension.perdev');
     }
   }
+
+  // A status bar button that opens the chat, for anyone who closes the sidebar.
+  const chatButton = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 1000);
+  chatButton.text = '$(comment-discussion) PerDev Chat';
+  chatButton.tooltip = 'Open the PerDev agent chat (Ctrl+L)';
+  chatButton.command = 'perdev.openChat';
+  chatButton.show();
+  context.subscriptions.push(
+    chatButton,
+    vscode.commands.registerCommand('perdev.openChat', async () => {
+      await vscode.commands.executeCommand('workbench.view.extension.perdev');
+      await vscode.commands.executeCommand(`${ChatViewProvider.viewId}.focus`);
+      chat.focusInput();
+    }),
+  );
 }
 
 export function deactivate() {

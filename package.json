@@ -39,6 +39,11 @@
     },
     "commands": [
       {
+        "command": "perdev.openChat",
+        "title": "PerDev: Open Chat",
+        "icon": "$(comment-discussion)"
+      },
+      {
         "command": "perdev.newProject",
         "title": "PerDev: New Project",
         "icon": "$(rocket)"
@@ -307,6 +312,11 @@
           "type": "string",
           "default": "",
           "description": "Where new projects from the start screen are created. Empty: a PerDevProjects folder in your home directory."
+        },
+        "perdev.chat.openOnStartup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open the agent chat (right-hand sidebar) whenever a project opens."
         }
       }
     },
@@ -500,7 +510,6 @@
       },
       "workbench.startupEditor": "none",
       "workbench.tips.enabled": false,
-      "workbench.welcomePage.walkthroughs.openOnInstall": false,
       "workbench.list.smoothScrolling": true,
       "editor.minimap.enabled": false,
       "editor.smoothScrolling": true,
@@ -520,7 +529,14 @@
       "terminal.integrated.smoothScrolling": true,
       "workbench.secondarySideBar.defaultVisibility": "visibleInWorkspace",
       "explorer.autoReveal": true
-    }
+    },
+    "keybindings": [
+      {
+        "command": "perdev.openChat",
+        "key": "ctrl+l",
+        "mac": "cmd+l"
+      }
+    ]
   },
   "scripts": {
     "compile": "tsc -p ./",
