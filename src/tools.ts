@@ -183,7 +183,12 @@ async function editFile(ctx: ToolContext, a: { path: string; old_str: string; ne
   const crlf = original.includes('\r\n');
   const text = crlf ? original.replace(/\r\n/g, '\n') : original;
   const plan = planEdit(text, a.old_str ?? '', a.new_str ?? '');
-  if (!plan.ok) return plan.error;
+  if (!plan.ok) {
+    // The local 7B can get stuck retrying an edit whose old_str never matches.
+    // A small file is easier to rewrite whole.
+    const lines = text.split('\n').length;
+    return lines <= 150 ? `${plan.error} This file is short (${lines} lines): you can also rewrite it completely with write_file.` : plan.error;
+  }
   const { oldStr, newStr, stripped } = plan;
   if (ctx.approveEdits && !(await confirm(`PerDev wants to edit ${a.path}`, `- ${oldStr}\n+ ${newStr}`))) {
     return 'Error: the user declined this edit.';
