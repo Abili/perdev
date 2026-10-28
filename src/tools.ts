@@ -79,6 +79,14 @@ async function readFile(ctx: ToolContext, a: { path: string; offset?: number; li
   return truncate(body + more);
 }
 
+// Show a file the agent just wrote, like other coding tools do: it opens as a
+// preview tab (replaced by the next one) without taking focus from the chat,
+// and the Explorer highlights it in the file tree.
+function showChangedFile(full: string) {
+  if (typeof vscode.window?.showTextDocument !== 'function') return; // outside VS Code (tests)
+  void Promise.resolve(vscode.window.showTextDocument(vscode.Uri.file(full), { preview: true, preserveFocus: true })).catch(() => {});
+}
+
 const NUMBERS_NOTE = ' Note: read_file line numbers were removed from your text; never include them.';
 
 async function writeFile(ctx: ToolContext, a: { path: string; content: string }) {
@@ -89,6 +97,7 @@ async function writeFile(ctx: ToolContext, a: { path: string; content: string })
   }
   await fs.mkdir(path.dirname(full), { recursive: true });
   await fs.writeFile(full, content, 'utf8');
+  showChangedFile(full);
   return `Wrote ${a.path} (${content.split('\n').length} lines).${stripped ? NUMBERS_NOTE : ''}`;
 }
 
@@ -107,6 +116,7 @@ async function editFile(ctx: ToolContext, a: { path: string; old_str: string; ne
   let updated = text.replace(oldStr, () => newStr);
   if (crlf) updated = updated.replace(/\n/g, '\r\n');
   await fs.writeFile(full, updated, 'utf8');
+  showChangedFile(full);
   return `Edited ${a.path}.${stripped ? NUMBERS_NOTE : ''}`;
 }
 

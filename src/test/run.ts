@@ -27,6 +27,27 @@ import { resolveShell } from '../shell';
 import { DocsLookup, extractSection, htmlToText, pickDocSet, rank } from '../docs';
 import { McpClient, resultText } from '../mcp';
 import { describeActivity, partialField } from '../activity';
+import { androidPackage, androidProjectFiles } from '../androidTemplate';
+import { looksLikeCodeForUser, looksLikeQuestion } from '../prompt';
+
+test('code pasted for the user (instead of written to files) is detected', () => {
+  const tutorial = 'To build it, follow these steps:\n\n```kotlin\nclass MainActivity : ComponentActivity() {\n  override fun onCreate(b: Bundle?) {\n    super.onCreate(b)\n    setContent { App() }\n  }\n}\n```\nThen add the sensor:\n```kotlin\nval sm = getSystemService(SENSOR_SERVICE)\nval a = sm.getDefaultSensor(1)\nsm.registerListener(this, a, 2)\n```';
+  assert.equal(looksLikeCodeForUser(tutorial), true);
+  assert.equal(looksLikeCodeForUser('Use `str.join` like this: ```py\n", ".join(x)\n```'), false); // a one-line example is fine
+  assert.equal(looksLikeQuestion('how do I read a file in Kotlin?'), true);
+  assert.equal(looksLikeQuestion('a simple sticky notes app\n\n[Workspace files:\nPERDEV.md]'), false);
+});
+
+test('Android template: a complete Compose project with a safe package name', () => {
+  assert.equal(androidPackage('Sticky Notes!'), 'com.example.stickynotes');
+  assert.equal(androidPackage('2048 game'), 'com.example.app2048game');
+  const files = androidProjectFiles('Sticky Notes');
+  for (const f of ['settings.gradle.kts', 'build.gradle.kts', 'gradle/libs.versions.toml', 'app/build.gradle.kts', 'app/src/main/AndroidManifest.xml', 'app/src/main/java/com/example/stickynotes/MainActivity.kt']) {
+    assert.ok(files[f], f);
+  }
+  assert.match(files['app/build.gradle.kts'], /namespace = "com\.example\.stickynotes"/);
+  assert.match(files['settings.gradle.kts'], /includeGroupByRegex\("com\\\\\.android\.\*"\)/);
+});
 import { splitThinking } from '../llm';
 
 test('activity lines describe tool calls, even while their arguments are still streaming', () => {

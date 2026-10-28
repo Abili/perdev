@@ -20,7 +20,7 @@
   ],
   "contributes": {
     "viewsContainers": {
-      "activitybar": [
+      "secondarySidebar": [
         {
           "id": "perdev",
           "title": "PerDev",
@@ -509,7 +509,9 @@
       "window.commandCenter": true,
       "terminal.integrated.defaultProfile.windows": "Git Bash",
       "terminal.integrated.cursorStyle": "line",
-      "terminal.integrated.smoothScrolling": true
+      "terminal.integrated.smoothScrolling": true,
+      "workbench.secondarySideBar.defaultVisibility": "visibleInWorkspace",
+      "explorer.autoReveal": true
     }
   },
   "scripts": {

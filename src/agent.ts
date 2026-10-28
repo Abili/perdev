@@ -6,7 +6,15 @@ import { describeActivity } from './activity';
 import { TOOL_SPECS, runTool, ToolContext } from './tools';
 import { truncate } from './toolSpecs';
 import { conversationSize, trimContext } from './context';
-import { carryOverSection, HANDOFF_PROMPT, looksLikeAskingUserToAct, looksLikeUnfinishedPlan, systemPrompt } from './prompt';
+import {
+  carryOverSection,
+  HANDOFF_PROMPT,
+  looksLikeAskingUserToAct,
+  looksLikeCodeForUser,
+  looksLikeQuestion,
+  looksLikeUnfinishedPlan,
+  systemPrompt,
+} from './prompt';
 import { LoopGuard } from './loopGuard';
 import { resolveShell, Shell } from './shell';
 import { DocsLookup } from './docs';
@@ -90,6 +98,7 @@ export class Agent {
     this.abort = new AbortController();
     const signal = this.abort.signal;
     this.messages.push({ role: 'user', content: userText });
+    const isQuestion = looksLikeQuestion(userText);
     const extra = opts.extra;
     const tools = extra ? [...TOOL_SPECS, ...extra.specs] : TOOL_SPECS;
     const toolNames = tools.map((t) => t.function.name);
@@ -142,11 +151,14 @@ ${extra.notes}` : '');
           // At the first step only a short announcement counts ("I'll read its contents
           // first. Please wait..."): a real answer that mentions a next step is longer.
           const firstStepAnnouncement = toolsUsed === 0 && result.content.trim().length < 400 && looksLikeUnfinishedPlan(result.content);
-          if (retries < 2 && (midTaskStall || asking || firstStepAnnouncement)) {
+          // Asked to build or change something, it pasted code for the user to copy:
+          // make it write that code into the actual files instead.
+          const codeDump = !isQuestion && looksLikeCodeForUser(result.content);
+          if (retries < 2 && (midTaskStall || asking || firstStepAnnouncement || codeDump)) {
             retries++;
-            status('Planning the next step…');
-            const keep = asking ? '' : result.content;
-            const call = await continueAsToolCall(cfg, this.messages, tools, keep, signal, hooks.toolCall);
+            status(codeDump ? 'Creating the files…' : 'Planning the next step…');
+            const keep = asking ? '' : codeDump ? introBeforeCode(result.content) : result.content;
+            const call = await continueAsToolCall(cfg, this.messages, tools, keep, signal, hooks.toolCall, codeDump ? 'write_file' : undefined);
             if (!call) {
               status('Thinking again…');
               temperature = 0.4;
@@ -237,6 +249,13 @@ ${extra.notes}` : '');
       return `Error: ${e?.message ?? e}`;
     }
   }
+}
+
+// The explanation before the first code block, kept short: the pasted code
+// itself is dropped from the history so the model doesn't re-read it.
+function introBeforeCode(reply: string): string {
+  const intro = reply.split('```')[0].trim();
+  return intro.length > 600 ? intro.slice(0, 600).replace(/\s+\S*$/, '') + '…' : intro;
 }
 
 function friendlyError(e: any, cfg: LlmConfig): string {

@@ -45,7 +45,7 @@ export async function streamChat(
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${cfg.apiKey}` },
     // max_tokens stops a runaway reply (small models sometimes repeat themselves).
-    body: JSON.stringify({ model: cfg.model, messages, ...(tools.length ? { tools } : {}), stream: true, temperature, max_tokens: 2048 }),
+    body: JSON.stringify({ model: cfg.model, messages, ...(tools.length ? { tools } : {}), stream: true, temperature, max_tokens: hooks.maxTokens ?? 2048 }),
     signal,
   });
   if (!res.ok || !res.body) {
@@ -131,6 +131,8 @@ export async function streamChat(
 }
 
 export interface StreamHooks {
+  // Reply length limit (default 2048 tokens; stops runaway replies).
+  maxTokens?: number;
   // A tool call is being written: its name, and its arguments so far.
   toolCall?: (name: string, partialArgs: string) => void;
   // The model's visible reasoning, as it streams.
@@ -243,16 +245,21 @@ export async function continueAsToolCall(
   replySoFar: string,
   signal: AbortSignal,
   onToolCall?: (name: string, partialArgs: string) => void,
+  // Force a particular tool: e.g. write_file when the model pasted code instead of writing files.
+  forceTool?: string,
 ): Promise<ToolCall | undefined> {
-  const prefilled: ChatMessage[] = [...messages, { role: 'assistant', content: replySoFar.trim() + PREFILL }];
+  const start = forceTool ? `{"name": "${forceTool}", "arguments": {"path": "` : '{"name": "';
+  const prefilled: ChatMessage[] = [...messages, { role: 'assistant', content: replySoFar.trim() + '\n<tool_call>\n' + start }];
   // The call arrives as text ('read_file", "arguments": {"path": ...'): report it as it streams.
   let written = '';
   const onText = (d: string) => {
     written += d;
+    if (forceTool) return onToolCall?.(forceTool, '{"path": "' + written);
     const m = written.match(/^([A-Za-z0-9_]+)"\s*,\s*"arguments"\s*:\s*([\s\S]*)$/);
     if (m) onToolCall?.(m[1], m[2]);
   };
-  const r = await streamChat(cfg, prefilled, tools, onText, signal);
-  const text = '{"name": "' + r.content;
+  // A whole file can be long: allow more tokens than a normal reply.
+  const r = await streamChat(cfg, prefilled, tools, onText, signal, undefined, { maxTokens: forceTool ? 6144 : undefined });
+  const text = start + r.content;
   return parseFallbackToolCalls(text, tools.map((t) => t.function.name)).call;
 }

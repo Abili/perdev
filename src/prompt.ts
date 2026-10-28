@@ -6,6 +6,21 @@ export function looksLikeUnfinishedPlan(text: string): boolean {
   return plan.test(text) && !finished.test(text);
 }
 
+// True when a reply hands the user code to copy (fenced blocks with real
+// content) instead of writing files. Seen on the local 7B: asked to build an
+// app, it answered with a 7,000-character tutorial and never called a tool.
+export function looksLikeCodeForUser(reply: string): boolean {
+  const blocks = [...reply.matchAll(/```[^\n]*\n([\s\S]*?)```/g)].map((m) => m[1].split('\n').filter((l) => l.trim()).length);
+  const total = blocks.reduce((a, b) => a + b, 0);
+  return total >= 6 || blocks.filter((n) => n >= 3).length >= 2;
+}
+
+// True when the user asked a question (answer it) rather than for work (do it).
+export function looksLikeQuestion(userText: string): boolean {
+  const ask = userText.replace(/\n\n\[(Context|Workspace)[\s\S]*$/, '').trim();
+  return /\?\s*$/.test(ask) || /^(what|why|how|when|where|which|who|explain|describe|can you explain|could you explain|tell me|show me how|is|are|does|do)\b/i.test(ask);
+}
+
 // True when a reply asks the user to do the agent's job, e.g. "Please call
 // read_file with the path to calc.py" (frequent with the local 7B model).
 export function looksLikeAskingUserToAct(text: string, toolNames: string[]): boolean {
@@ -67,6 +82,7 @@ How to work:
 - Explore before changing things: use list_files, search and read_file to understand the code.
 - Make focused changes with edit_file. Always read a file before editing it, and copy old_str exactly.
 - Use write_file only for new files or full rewrites.
+- When asked to build or change something, create and edit the actual files with write_file and edit_file, one file per call. Never paste file contents into your reply for the user to copy.
 - After changing code, verify it: run the tests, the build or the program with run_command when possible, and fix what fails.
 - When unsure how a function, class or API works, check the official documentation with lookup_docs instead of guessing.
 - A command that prints nothing has still run. Don't repeat a call whose result you already have; use the result.

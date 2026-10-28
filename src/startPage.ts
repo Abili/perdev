@@ -47,7 +47,7 @@ export class StartPage {
         categories: CATEGORIES,
         types: PROJECT_TYPES.map(({ id, category, title, blurb, icon, setup }) => ({
           id, category, title, blurb, icon,
-          downloads: setup.kind === 'command' ? setup.downloads : 'nothing (PerDev writes a small starter)',
+          downloads: setup.downloads ?? 'nothing (PerDev writes a small starter)',
         })),
         availability: await checkAvailability(),
         location: defaultLocation(),
@@ -89,7 +89,7 @@ export class StartPage {
       typeId,
       name,
       description,
-      command: type.setup.kind === 'command' ? type.setup.command(name) : undefined,
+      command: type.setup.command?.(name),
     };
     await this.context.globalState.update(PENDING_KEY, pending);
     await this.addRecent(folder, type.title);

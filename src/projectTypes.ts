@@ -4,6 +4,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFile } from 'child_process';
+import { androidProjectFiles, androidWrapperCommand } from './androidTemplate';
 
 export type Category = 'mobile' | 'web' | 'backend';
 
@@ -27,7 +28,10 @@ export interface ProjectType {
   platformNote?: string;
   // How to set up the project in the new folder: an official generator run in a
   // visible terminal, or small starter files PerDev writes itself (no download).
-  setup: { kind: 'command'; command: (name: string) => string; downloads: string } | { kind: 'files'; files: (name: string) => Record<string, string> };
+  setup:
+    | { kind: 'command'; command: (name: string) => string; downloads: string }
+    // Starter files, optionally followed by a command (e.g. generating the Gradle wrapper).
+    | { kind: 'files'; files: (name: string) => Record<string, string>; command?: (name: string) => string | undefined; downloads?: string };
   // What to ask the agent once the project exists.
   agentPrompt: string;
 }
@@ -82,11 +86,13 @@ export const PROJECT_TYPES: ProjectType[] = [
     requires: [ANDROID_STUDIO],
     setup: {
       kind: 'files',
-      files: (n) => ({
-        'PERDEV.md': `# ${n}\n\nCreate the Android project in Android Studio (File > New > New Project > Empty Activity) and save it in this folder. Then reopen this folder in PerDev: the agent can build it, install it on your phone or an emulator, and test it.\n`,
-      }),
+      files: (n) => androidProjectFiles(n),
+      // gradlew comes from a Gradle already on this PC, offline.
+      command: () => androidWrapperCommand(),
+      downloads: 'nothing if Android builds have run on this PC before (the build tools are cached); otherwise a few hundred MB on the first build',
     },
-    agentPrompt: 'This will be a native Android app (Kotlin, Jetpack Compose). Once the project exists, build what I describe below, and test it on the device.',
+    agentPrompt:
+      'This is a new Android app (Kotlin, Jetpack Compose) with a working MainActivity under app/src/main/java. Build what I describe below by writing the Kotlin files, then build it and test it on the device.',
   },
   {
     id: 'ios',
