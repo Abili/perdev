@@ -248,11 +248,12 @@ export async function continueAsToolCall(
   // Force a particular tool: e.g. write_file when the model pasted code instead of writing files.
   forceTool?: string,
 ): Promise<ToolCall | undefined> {
-  const start = !forceTool
-    ? '{"name": "'
-    : forceTool === 'write_file'
-      ? '{"name": "write_file", "arguments": {"path": "'
-      : `{"name": "${forceTool}", "arguments": {`;
+  // A forced call starts with its first required argument: after a bare
+  // '"arguments": {' the 7B often writes nothing at all (measured with
+  // open_in_browser), but it fills in '"url": "' correctly.
+  const params: any = tools.find((t) => t.function.name === forceTool)?.function.parameters ?? {};
+  const first = (params.required ?? []).find((p: string) => params.properties?.[p]?.type === 'string');
+  const start = !forceTool ? '{"name": "' : `{"name": "${forceTool}", "arguments": {${first ? `"${first}": "` : ''}`;
   const prefilled: ChatMessage[] = [...messages, { role: 'assistant', content: replySoFar.trim() + '\n<tool_call>\n' + start }];
   // The call arrives as text ('read_file", "arguments": {"path": ...'): report it as it streams.
   let written = '';
@@ -265,5 +266,10 @@ export async function continueAsToolCall(
   // A whole file can be long: allow more tokens than a normal reply.
   const r = await streamChat(cfg, prefilled, tools, onText, signal, undefined, { maxTokens: forceTool ? 6144 : undefined });
   const text = start + r.content;
-  return parseFallbackToolCalls(text, tools.map((t) => t.function.name)).call;
+  const call = parseFallbackToolCalls(text, tools.map((t) => t.function.name)).call;
+  // A tool that needs no arguments (build, launch...) can be called as is.
+  if (!call && forceTool && !(params.required ?? []).length) {
+    return { id: `call_forced_${Date.now()}`, type: 'function', function: { name: forceTool, arguments: '{}' } };
+  }
+  return call;
 }

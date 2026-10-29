@@ -1,7 +1,7 @@
 // Unit tests for the parts that don't need VS Code. Run with: npm test
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { parseFallbackToolCalls } from '../llm';
+import { continueAsToolCall, parseFallbackToolCalls } from '../llm';
 import { trimContext } from '../context';
 import { cleanCompletion, fimFormatFor } from '../fim';
 import { ChatMessage } from '../llm';
@@ -469,18 +469,71 @@ test('cleanCompletion stops before repeating the suffix', () => {
 import { ReplyFilter } from '../replyFilter';
 import { scaffoldAndroidIfNeeded, wantsAndroidApp } from '../androidTemplate';
 
-test('ReplyFilter: code in a work reply is cut, not shown', () => {
+test('ReplyFilter: code in a work reply is hidden, and kept whole for its file', () => {
   const f = new ReplyFilter(false);
   let shown = '';
-  let cut = false;
-  for (const d of ['Here is the app:\n', '``', '`kotlin\nclass Main', 'Activity {}']) {
+  const cuts: boolean[] = [];
+  for (const d of ['Here is the app:\n', '``', '`kotlin\nclass Main', 'Activity {}\n', '```\nMore text']) {
     const u = f.push(d);
     shown += u.show;
-    cut ||= u.cutForCode;
+    cuts.push(u.cutForCode);
   }
   assert.equal(shown, 'Here is the app:\n');
-  assert.equal(cut, true);
+  // Not cut while the block is still being written; cut once it is complete.
+  assert.deepEqual(cuts, [false, false, false, false, true]);
+  assert.deepEqual(f.code, { lang: 'kotlin', body: 'class MainActivity {}\n' });
   assert.equal(f.flush(), '');
+});
+
+test('ReplyFilter: a tool call in a ```json block is not code for a file', () => {
+  const f = new ReplyFilter(false);
+  const u = f.push('Updating the plan.\n```json\n{"name": "update_plan", "arguments": {"steps": []}}\n```\n');
+  assert.equal(u.cutForCode, false);
+  assert.equal(f.code, undefined);
+  assert.equal(u.show, 'Updating the plan.\n');
+});
+
+test('A forced call starts with the tool\'s first required argument', async () => {
+  // A tiny stand-in model server: replies "index.html\"}}" to whatever is asked.
+  const http = await import('node:http');
+  let prefill = '';
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => (body += d));
+    req.on('end', () => {
+      prefill = JSON.parse(body).messages.at(-1).content;
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end(`data: ${JSON.stringify({ choices: [{ delta: { content: 'index.html"}}' } }] })}\n\ndata: [DONE]\n\n`);
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()));
+  const port = (server.address() as any).port;
+  const cfg = { baseUrl: `http://127.0.0.1:${port}/v1`, apiKey: 'x', model: 'm' };
+  const tools = [
+    { type: 'function' as const, function: { name: 'open_in_browser', description: '', parameters: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'] } } },
+    { type: 'function' as const, function: { name: 'build', description: '', parameters: { type: 'object', properties: {} } } },
+  ];
+  const call = await continueAsToolCall(cfg, [{ role: 'user', content: 'go' }], tools, '', new AbortController().signal, undefined, 'open_in_browser');
+  assert.ok(prefill.endsWith('{"name": "open_in_browser", "arguments": {"url": "'));
+  assert.deepEqual(JSON.parse(call!.function.arguments), { url: 'index.html' });
+  // No required arguments: called as is even if the model adds nothing usable.
+  const build = await continueAsToolCall(cfg, [{ role: 'user', content: 'go' }], tools, '', new AbortController().signal, undefined, 'build');
+  assert.equal(build?.function.name, 'build');
+  server.close();
+});
+
+test('ReplyFilter: a reply going round in circles is cut (real 7B reply)', () => {
+  const f = new ReplyFilter(false);
+  let u;
+  for (let n = 12; n < 20; n += 2) {
+    u = f.push(`### Step ${n}: Build and Test the App\nLet's build and test the app on the device.\n\n### Step ${n + 1}: Update Plan\nLet's update the plan to reflect the current steps.\n\n`);
+    if (u.repeating) break;
+  }
+  assert.equal(u!.repeating, true);
+  // Code repeating a line is fine.
+  const c = new ReplyFilter(false);
+  const line = '    modifier = Modifier.fillMaxWidth().padding(8.dp)\n';
+  assert.equal(c.push('```kotlin\n' + line + line + line + line).repeating, false);
 });
 
 test('ReplyFilter: a question may show code; tool calls as text stay hidden', () => {

@@ -34,6 +34,12 @@ export class LoopGuard {
         message: `PerDev stopped because the model kept repeating the same step (${describe(name, rawArgs)}). Try rephrasing the request or giving more detail.`,
       };
     }
+    if (name === 'write_file' || name === 'edit_file') {
+      return {
+        action: 'block',
+        message: `${prev.result}\n\n[The file already has exactly this content from your earlier identical ${name} call. Don't write it again: write the next file the task needs, or build and test the app.]`,
+      };
+    }
     // Hand back the full earlier result: the model may genuinely need it again
     // (e.g. to copy old_str exactly after a failed edit), just not to rerun it.
     return {
@@ -49,10 +55,12 @@ export class LoopGuard {
     if (!this.seen.has(k)) this.seen.set(k, { count: 1, result });
   }
 
-  // Something changed (a device action like tap): every earlier call may now give a
-  // different result, so none of them count as repeats any more.
+  // Something changed on the device (tap, install...): every earlier read may now give
+  // a different result. Files didn't change, so writing the same file again still repeats.
   forgetAll() {
-    this.seen.clear();
+    for (const k of [...this.seen.keys()]) {
+      if (!k.startsWith('write_file ') && !k.startsWith('edit_file ')) this.seen.delete(k);
+    }
   }
 
   // A change to the workspace can make an earlier read or command give a new result.
