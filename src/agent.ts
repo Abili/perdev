@@ -333,7 +333,7 @@ ${extra.notes}` : '');
               !failed &&
               !/BUILD FAILED/.test(output) &&
               !(name === 'run_command' && !/^exit code: 0\b/.test(output)) &&
-              !(name === 'open_in_browser' && /Console errors:/.test(output));
+              !(name === 'open_in_browser' && /Console errors:|Failed requests:/.test(output));
             if (ok && name === 'build') progress.built = true;
             if (ok && name === 'install') progress.installed = true;
             // An Android app counts as tested once it runs on the device, not when it merely builds.
