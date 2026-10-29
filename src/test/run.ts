@@ -579,3 +579,13 @@ test('Android: an app request in an empty folder gets a Kotlin + Compose project
   assert.equal(await scaffoldAndroidIfNeeded(root, 'build an android app', () => {}), undefined);
   fsSync.rmSync(root, { recursive: true, force: true });
 });
+
+import { describeCheck, missingFiles } from '../browser';
+
+test('browser check: missing local files are named, with what to do', () => {
+  const failed = ['net::ERR_FILE_NOT_FOUND file:///E:/codingprojects/my-static-app/dog1.jpg (Image)', '404 http://localhost:8000/dog%202.jpg', 'net::ERR_ABORTED x (Script)'];
+  assert.deepEqual(missingFiles(failed), ['dog1.jpg', 'dog 2.jpg']);
+  const text = describeCheck({ url: 'file:///x/index.html', title: 'Dogs', status: 200, text: 'Dogs', consoleErrors: [], failedRequests: failed });
+  assert.ok(text.startsWith('PROBLEM: the page uses files that don\'t exist: dog1.jpg, dog 2.jpg.'));
+  assert.ok(/inline SVG/.test(text));
+});

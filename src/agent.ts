@@ -138,6 +138,7 @@ ${extra.notes}` : '');
     let forceVerify = false;
     // Code saved by write_file this run, to spot the model sending the same file again.
     const written = new Set<string>();
+    const earlierReplies = new Set<string>();
     // Android with a device: build, install, then launch is the test.
     const onDevice = !!extra?.has('launch') && fs.existsSync(path.join(this.root, 'settings.gradle.kts'));
     const progress = { built: false, installed: false };
@@ -196,6 +197,17 @@ ${extra.notes}` : '');
         }
         const rest = filter.flush();
         if (rest) emit({ type: 'text', delta: rest });
+        // The same reply as an earlier one this run ("Make sure the images are placed...",
+        // then check again, three times over): going round in circles.
+        const said = filter.visible.replace(/\s+/g, ' ').trim().slice(0, 300);
+        if (!forced && !isQuestion && said.length > 40) {
+          if (earlierReplies.has(said)) {
+            looping = true;
+            codeCut = false;
+            result = { content: filter.visible, toolCalls: [] };
+          }
+          earlierReplies.add(said);
+        }
         emit({ type: 'assistant_end' });
         temperature = undefined;
 

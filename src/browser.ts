@@ -83,6 +83,7 @@ export class HeadlessBrowser {
     const pending = new Map<number, (v: any) => void>();
     const consoleErrors: string[] = [];
     const failedRequests: string[] = [];
+    const requestUrls = new Map<string, string>();
     let status: number | undefined;
     let loaded: () => void = () => {};
     const loadedP = new Promise<void>((r) => (loaded = r));
@@ -107,7 +108,10 @@ export class HeadlessBrowser {
         // Browsers ask for /favicon.ico on their own; a missing one is just noise.
         if (r.status >= 400 && !/\/favicon\.ico(\?|$)/i.test(r.url)) failedRequests.push(`${r.status} ${r.url}`.slice(0, 200));
       }
-      if (m.method === 'Network.loadingFailed' && !m.params.canceled) failedRequests.push(`${m.params.errorText} (${m.params.type ?? 'request'})`);
+      if (m.method === 'Network.requestWillBeSent') requestUrls.set(m.params.requestId, m.params.request?.url ?? '');
+      if (m.method === 'Network.loadingFailed' && !m.params.canceled) {
+        failedRequests.push(`${m.params.errorText} ${requestUrls.get(m.params.requestId) ?? ''} (${m.params.type ?? 'request'})`.slice(0, 300));
+      }
     };
     const send = (method: string, params: object = {}) =>
       new Promise<any>((resolve) => {
@@ -141,10 +145,36 @@ export class HeadlessBrowser {
 
 // What the model reads after a page check.
 export function describeCheck(c: PageCheck): string {
-  const lines = [`Opened ${c.url}${c.status ? ` (HTTP ${c.status})` : ''}. Title: "${c.title || '(none)'}".`];
+  const missing = missingFiles(c.failedRequests);
+  const lines = [
+    // The 7B otherwise told the user to add the files and checked again, in a loop.
+    ...(missing.length
+      ? [
+          `PROBLEM: the page uses files that don't exist: ${missing.join(', ')}. Fix this yourself now; don't ask the user. ` +
+            "Create the missing files, or change the page so it doesn't need them (for pictures, use inline SVG, CSS or emoji instead of <img> files).",
+        ]
+      : []),
+    `Opened ${c.url}${c.status ? ` (HTTP ${c.status})` : ''}. Title: "${c.title || '(none)'}".`,
+  ];
   lines.push(c.consoleErrors.length ? `Console errors:\n- ${c.consoleErrors.join('\n- ')}` : 'No console errors.');
   if (c.failedRequests.length) lines.push(`Failed requests:\n- ${c.failedRequests.join('\n- ')}`);
   lines.push(`Visible text:\n${c.text.trim() || '(the page shows no text)'}`);
   lines.push('[A screenshot was shown to the user. You cannot see images; use the text and errors above.]');
   return lines.join('\n\n');
+}
+
+// File names of local files that failed to load ("net::ERR_FILE_NOT_FOUND file:///.../dog1.jpg (Image)", "404 http://localhost:8000/x.css").
+export function missingFiles(failed: string[]): string[] {
+  const names = failed
+    .filter((f) => /ERR_FILE_NOT_FOUND|^404 /.test(f))
+    .map((f) => f.match(/(?:file:|https?:)\/\/\S+/)?.[0])
+    .filter((u): u is string => !!u)
+    .map((u) => {
+      try {
+        return decodeURIComponent(new URL(u).pathname).split('/').pop() || u;
+      } catch {
+        return u;
+      }
+    });
+  return [...new Set(names)];
 }
