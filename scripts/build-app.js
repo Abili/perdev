@@ -43,6 +43,12 @@ Object.assign(product, PRODUCT, { win32ExeBasename: NAME });
 // Without this, the built-in updater would replace PerDev with stock VSCodium.
 for (const k of REMOVE) delete product[k];
 fs.writeFileSync(productPath, JSON.stringify(product, null, '\t'));
+// Electron names the app (dialog titles such as a page's alert()) from package.json, not product.json.
+const appPkgPath = path.join(appDir, 'package.json');
+const appPkg = JSON.parse(fs.readFileSync(appPkgPath, 'utf8'));
+appPkg.name = NAME;
+appPkg.author = { name: NAME };
+fs.writeFileSync(appPkgPath, JSON.stringify(appPkg, null, 2));
 
 step('Building in the PerDev AI extension');
 copyExtension(path.join(appDir, 'extensions', 'perdev'));
